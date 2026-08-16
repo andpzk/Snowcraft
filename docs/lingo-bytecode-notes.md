@@ -259,8 +259,8 @@ These simple handlers are good smoke tests for any future disassembly exporter.
 
 ## Repeatable Extraction We Can Add Next
 
-Without a full decompiler, the next useful tool should be something like
-`tools/export-lingo-bytecode-summary.ps1`. It can generate these ignored CSVs:
+Without a full decompiler, `tools/export-lingo-bytecode-summary.ps1` now
+generates these ignored CSVs:
 
 - `reverse/lingo-names.csv`
   - Direct parse of `Lnam`, no regex duplicates.
@@ -275,6 +275,9 @@ Without a full decompiler, the next useful tool should be something like
 - `reverse/lingo-disassembly.csv`
   - One row per opcode: script, handler, byte offset, opcode, mnemonic,
     raw operands, resolved name/constant when possible.
+- `reverse/lingo-call-sites.csv`
+  - One row per local/named call, with nearby pushed constants and the last
+    nearby constant. This is especially useful for `puppetSound`.
 
 The disassembly does not need AST reconstruction to be valuable. Resolved
 constants, globals, calls, property assignments, jumps, and `the sprite`

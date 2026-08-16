@@ -67,8 +67,10 @@ powershell -ExecutionPolicy Bypass -File tools/export-cast-index.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-bitmap-metadata.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-key-map.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-strings.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-lingo-bytecode-summary.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-director-sounds.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-sound-cast-metadata.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-sound-map.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-bitd-previews.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-bitd-transparent-assets.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-asset-catalog.ps1
@@ -233,6 +235,9 @@ The catalog labels candidates as `unambiguous`, `reused-identical`, or
 `R hit`/`R hit2` currently hash to identical PNG data, while some walk/ready
 frames have multiple distinct candidates.
 
+Detailed sprite/state mapping notes are tracked in
+`docs/sprite-state-notes.md`.
+
 The generated bitmap CSVs and PNGs are derived from `EXE/Snowcraft.exe` and are
 ignored by git.
 
@@ -298,6 +303,9 @@ The score data makes the movie structure clearer:
   table, exposing the frame script behavior member and initializer index.
 - `cast-member-map.csv` parses `CAS*` as a Director cast slot table and helps
   distinguish score cast slots from raw resource indexes.
+
+Detailed level/formation notes are tracked in
+`docs/score-formation-notes.md`.
 
 Current frame-script evidence:
 
@@ -407,6 +415,8 @@ The exact meaning of `gd` still needs confirmation from the Lingo scripts and
 runtime behavior, but it is likely tied to opponent count, difficulty, or a
 spawn/formation table.
 
+Detailed level-flow notes are tracked in `docs/level-data-notes.md`.
+
 The `Lnam` Lingo name table contains 61 identifiers. Important names found so
 far:
 
@@ -458,7 +468,19 @@ This is not a bytecode decompiler, but it makes the visible script vocabulary
 repeatable and easier to diff while reconstructing gameplay.
 
 More structured Lingo notes are in `docs/lingo-bytecode-notes.md`. Current
-bytecode-level findings:
+bytecode-level findings are now exported by
+`tools/export-lingo-bytecode-summary.ps1` to:
+
+```text
+reverse/lingo-names.csv
+reverse/lingo-scripts.csv
+reverse/lingo-handlers.csv
+reverse/lingo-constants.csv
+reverse/lingo-disassembly.csv
+reverse/lingo-call-sites.csv
+```
+
+Current script role findings:
 
 ```text
 0579  likely green character behavior
@@ -476,6 +498,20 @@ Some small handlers already disassemble clearly without a full decompiler:
 0573.mouseDown   clearGlobals(), go(1)
 0283.mouseDown   gotoNetPage("mailto:wells@nny.com")
 0146.exitFrame   preLoad(1, 77)
+```
+
+The `lingo-call-sites.csv` output currently finds `20` `puppetSound` call sites.
+The nearest resolved pushed constants give useful sound/action evidence:
+
+```text
+0023.step          puppetSound("step")
+0023.nextLevel     puppetSound("ugly")
+0023.ridicule      puppetSound("laugh")
+0318.prepareFrame  puppetSound("Whoosh" | "Whoosh Percusive" | "hit1" | "splat")
+0341.prepareFrame  puppetSound("Whoosh" | "Whoosh Percusive" | "hit1" | "splat")
+0445.prepareFrame  puppetSound("Ahhhh!" | "bird_tweets")
+0445.mouseEnter    puppetSound("short_chirps")
+0579.prepareFrame  puppetSound("step" | "hit2" | "kids")
 ```
 
 `Lscr` script chunks are still bytecode, but their embedded strings already map
@@ -613,9 +649,22 @@ mostly around `11025 Hz`, with some legacy rates near `11127 Hz` and `22254 Hz`.
 `tools/export-sound-cast-metadata.ps1` writes `reverse/sound-cast-metadata.csv`
 from sound `CASt` records. It captures sound cast names and embedded media
 format labels such as `kMoaCfFormat_snd`, `kMoaCfFormat_WAVE`, and
-`kMoaCfFormat_AIFF`. This is separate from the raw `sndH/sndS` WAV export; the
-exact name-to-sample mapping still needs Director runtime tracing or a stronger
-resource-key interpretation.
+`kMoaCfFormat_AIFF`. This is separate from the raw `sndH/sndS` WAV export, so
+`tools/export-sound-map.ps1` performs the repeatable join.
+
+`tools/export-sound-map.ps1` now formalizes the stronger `KEY*` relationship
+found during reverse engineering:
+
+```text
+ParentIndex - 3 == sound CASt resource index
+ChildIndex  - 3 == sndH/sndS resource index
+```
+
+It writes `reverse/sound-map.csv`, mapping `15` of `16` sound cast rows directly
+to exported WAV files. The unresolved row is `CASt 133 splat`, which has no
+current `KEY*` sound link; `CASt 313 splat` is the mapped audio version.
+
+Detailed sound/action notes are tracked in `docs/sound-action-notes.md`.
 
 `tools/export-key-map.ps1` is still partially interpretive. It now parses the
 correct `KEY*` body header and used-entry count, but the exact Director key
