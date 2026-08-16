@@ -69,6 +69,8 @@ powershell -ExecutionPolicy Bypass -File tools/export-key-map.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-strings.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-bytecode-summary.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-control-flow-graphs.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-lingo-structured-pseudocode.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-lingo-state-transitions.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-director-sounds.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-sound-cast-metadata.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-sound-map.ps1
@@ -482,6 +484,8 @@ reverse/lingo-pseudocode.csv
 reverse/lingo-basic-blocks.csv
 reverse/lingo-control-flow-edges.csv
 reverse/control-flow-graphs/manifest.csv
+reverse/lingo-structured-pseudocode/manifest.csv
+reverse/lingo-state-transitions.csv
 reverse/lingo-call-sites.csv
 reverse/lingo-entity-ops.csv
 reverse/lingo-member-assignments.csv
@@ -502,6 +506,8 @@ The current gameplay state reconstruction is tracked in
 `docs/gameplay-state-map.md`. It summarizes the green actor (`0579`), red actor
 (`0445`), projectile scripts (`0318` and `0341`), level controller (`0257`), and
 movie helper script (`0023`) in terms useful for a future web runtime.
+The exact sprite-channel allocation, companion offsets, projectile pools, and
+cast arithmetic constraints are tracked in `docs/gameplay-sprite-map.md`.
 
 Some small handlers already disassemble clearly without a full decompiler:
 
@@ -536,6 +542,11 @@ Current state-assignment evidence includes `78` `sprite.memberNum` writes,
 control-flow edges. The strongest actor-state map is documented in
 `docs/lingo-state-machine-notes.md`.
 
+The control-flow layer also generates exact labeled block IR for all `23`
+handlers and `203` state-transition/effect rows. All branch conditions in the
+structured export are currently parsed, and all local-variable operands resolve
+through the Director 5+ 8-byte slot stride.
+
 The current pseudo-code pass resolves all observed constant and global operands.
 Important globals now resolve by their original Lingo names:
 
@@ -559,6 +570,8 @@ Useful pseudo-code examples now include:
 0318.prepareFrame     set the loc of sprite sp = the loc of sprite sp + point((-20), (-10))
 0318.prepareFrame     set myRange = (integer(word 2 of mn) * 2)
 0579.prepareFrame     set the memberNum of sprite sp = the number of cast "G windup"
+0445.mouseDown        if the stillDown then continue the drag/charge loop
+0445.mouseDown        set power = ((the timer - powerTime) / 5)
 ```
 
 `Lscr` script chunks are still bytecode, but their embedded strings already map

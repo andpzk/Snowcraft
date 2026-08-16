@@ -9,6 +9,8 @@ Primary generated inputs:
 - `reverse/lingo-pseudocode.csv`
 - `reverse/lingo-basic-blocks.csv`
 - `reverse/lingo-control-flow-edges.csv`
+- `reverse/lingo-state-transitions.csv`
+- `reverse/lingo-structured-pseudocode/*.txt`
 - `reverse/lingo-member-assignments.csv`
 - `reverse/lingo-call-sites.csv`
 - `reverse/control-flow-graphs/*.dot`
@@ -126,8 +128,12 @@ Mouse handlers:
 - `mouseDown`: charges throw power, updates `power 0..8`, then searches
   projectile slots `50..59` and spawns `sb0..sb8` at the red location.
 
-The current pseudo-code has a suspicious `if not (0)` in `0445.mouseDown`;
-this likely hides a Director mouse-state expression such as `stillDown`.
+`mouseDown` is now recovered as a complete drag/charge loop. It stores
+`oH = mouseH - sprite.locH`, `oV = mouseV - sprite.locV`, and
+`powerTime = timer`. While `the stillDown` remains true, the red sprite follows
+the cursor using those offsets, sprites `33` and `34` follow it, and
+`power = (timer - powerTime) / 5` is clamped to `0..8`. Releasing the mouse
+leaves the loop and searches slots `50..59` for the projectile spawn.
 
 ## Projectiles (`0318` and `0341`)
 
@@ -185,6 +191,9 @@ myRange = integer(word 2 of mn) * 2
 
 ## Porting Gaps
 
+The detailed channel allocation and cast-order evidence is recorded in
+`docs/gameplay-sprite-map.md`.
+
 Important items still needed before a faithful web runtime:
 
 - confirm whether `gRDead` / `gGdead` should be named `redDead` /
@@ -196,7 +205,9 @@ Important items still needed before a faithful web runtime:
 - confirm Director `point` comparison semantics;
 - implement Director-like `intersects`, `soundBusy`, `startTimer`, sprite
   registration points, and cast-member lookup;
-- map dynamic animation sequences driven by `memberNum + 1`, including
-  `drop -> splat -> melt`, `G Hit -> G Hit2`, and red hit frames;
+- recover absolute member ids for duplicate-name animation frames; relative
+  sequences such as `drop -> splat -> melt` and `G Hit -> G Hit2` are now
+  established;
+- prove the direct score-channel-to-behavior attachment for projectile pools;
 - finish validating projectile `sb N` power/range and the two projectile sprite slot
   pools: green uses `40..49`, red uses `50..59`.

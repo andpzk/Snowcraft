@@ -14,6 +14,8 @@ $steps = @(
   @{ Name = "Export Lingo strings"; Script = "tools\export-lingo-strings.ps1" },
   @{ Name = "Export Lingo bytecode summary"; Script = "tools\export-lingo-bytecode-summary.ps1" },
   @{ Name = "Export Lingo control-flow graphs"; Script = "tools\export-lingo-control-flow-graphs.ps1" },
+  @{ Name = "Export structured Lingo pseudocode"; Script = "tools\export-lingo-structured-pseudocode.ps1" },
+  @{ Name = "Export Lingo state transitions"; Script = "tools\export-lingo-state-transitions.ps1" },
   @{ Name = "Export raw sound WAVs"; Script = "tools\export-director-sounds.ps1" },
   @{ Name = "Export sound cast metadata"; Script = "tools\export-sound-cast-metadata.ps1" },
   @{ Name = "Export sound map"; Script = "tools\export-sound-map.ps1" },

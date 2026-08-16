@@ -35,6 +35,14 @@ word 1 of mn
 word 2 of mn
 ```
 
+ScummVM's `LC::cb_v4theentitynamepush()` shows that opcode `0x66` consumes an
+argument-count marker and pushes a named Director entity. Modeling this
+recovers `the frame`, `the mouseH`, `the mouseV`, and `the stillDown` instead of
+leaving zero-valued stack artifacts. ScummVM's `findVarV4()` also confirms that
+Director 5+ argument/local IDs use an 8-byte stride; dividing those operands by
+8 resolves all observed Snowcraft locals, including `oH`, `oV`, `powerTime`,
+`power`, `n`, and `mn`.
+
 This Snowcraft build is Director 6.5, so the Director 5+ constant table layout
 applies: 8-byte constant index entries made of `uint32 type` and `uint32 value`.
 
@@ -223,6 +231,7 @@ Important opcodes already observed:
 0x57 / 0x97  named call
 0x5C / 0x9C  push Director entity/property
 0x5D / 0x9D  assign Director entity/property
+0x66 / 0xA6  push named Director entity such as `the stillDown`
 ```
 
 This explains why the current `lingo-strings.csv` contains many fake ASCII
@@ -299,6 +308,12 @@ generates these ignored CSVs:
 - `reverse/lingo-control-flow-edges.csv`
   - One row per recovered control-flow edge, including conditional true/false,
     fallthrough, jump, loop-back, and return edges.
+- `reverse/lingo-structured-pseudocode/*.txt`
+  - One control-flow-aware block-IR file per handler, preserving explicit
+    conditions, targets, loop backs, and returns.
+- `reverse/lingo-state-transitions.csv`
+  - Port-facing rows containing state conditions and assignments, sound/global/
+    location effects, and every outgoing edge target.
 - `reverse/lingo-call-sites.csv`
   - One row per local/named call, with nearby pushed constants and the last
     nearby constant. This is especially useful for `puppetSound`.
@@ -329,8 +344,8 @@ show their `sb` member-name parsing clearly:
 ```text
 0318.prepareFrame  if not ((word 1 of mn = "sb")) jump 63
 0318.prepareFrame  set myRange = (integer(word 2 of mn) * 2)
-0341.prepareFrame  if not ((word 1 of local[8] = "sb")) jump 63
-0341.prepareFrame  set myRange = (integer(word 2 of local[8]) * 2)
+0341.prepareFrame  if not ((word 1 of mn = "sb")) jump 63
+0341.prepareFrame  set myRange = (integer(word 2 of mn) * 2)
 ```
 
 ## Open Questions
@@ -348,6 +363,5 @@ show their `sb` member-name parsing clearly:
   `0x5C/0x5D/0x9C/0x9D` combinations. Common gameplay expressions such as
   `the locH of sprite sp`, `the memberNum of sprite sp`, `the timer`, and
   `the number of cast` are already labeled.
-- Build a control-flow-aware AST on top of the recovered basic blocks so
-  `0579.prepareFrame` and `0445.prepareFrame` can become structured source-like
-  state machines instead of block-local pseudo-code.
+- Continue lifting the exact block IR into verified high-level state-machine
+  source, using dominator/loop structure without changing branch semantics.

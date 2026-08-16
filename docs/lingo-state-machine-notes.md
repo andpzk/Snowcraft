@@ -150,7 +150,9 @@ effect or taunt/victory animation.
 - `reverse/lingo-member-assignments.csv` now uses stack-simulated statements,
   but only direct `the number of cast "<state>"` writes get a simple
   `StateName`; dynamic cast-number expressions remain in `StateExpression`.
-- Basic-block and jump-target recovery now exists, but there is not yet a
-  control-flow-aware AST. Branch-local expressions are still best read from
-  `reverse/lingo-basic-blocks.csv`, `reverse/lingo-control-flow-edges.csv`, and
-  the generated DOT graphs together.
+- `reverse/lingo-structured-pseudocode/*.txt` now provides a control-flow-aware
+  block IR for every handler, with explicit conditions, targets, loop backs,
+  and returns. It intentionally does not merge those blocks into a speculative
+  high-level AST.
+- `reverse/lingo-state-transitions.csv` provides a compact port-facing table of
+  state conditions, assignments, side effects, and outgoing edge targets.

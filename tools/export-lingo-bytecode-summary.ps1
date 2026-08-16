@@ -522,7 +522,7 @@ function Export-DisassemblyRows {
     [object[]]$Constants,
     [string[]]$Properties,
     [string[]]$Globals,
-    [string[]]$Args,
+    [string[]]$HandlerArgs,
     [string[]]$Locals
   )
 
@@ -574,11 +574,13 @@ function Export-DisassemblyRows {
           break
         }
         { $_ -in @(0x4B, 0x8B, 0x51, 0x91) } {
-          $resolved = if ([int]$operand -lt $Properties.Count) { $Properties[[int]$operand] } elseif ([int]$operand -lt $Args.Count) { $Args[[int]$operand] } else { "" }
+          $slot = if (([int]$operand % 8) -eq 0) { [int]([int]$operand / 8) } else { -1 }
+          $resolved = if ($slot -ge 0 -and $slot -lt $HandlerArgs.Count) { $HandlerArgs[$slot] } else { "" }
           break
         }
         { $_ -in @(0x4C, 0x8C, 0x52, 0x92) } {
-          $resolved = if ([int]$operand -lt $Locals.Count) { $Locals[[int]$operand] } else { "" }
+          $slot = if (([int]$operand % 8) -eq 0) { [int]([int]$operand / 8) } else { -1 }
+          $resolved = if ($slot -ge 0 -and $slot -lt $Locals.Count) { $Locals[$slot] } else { "" }
           break
         }
         { $_ -in @(0x56, 0x96, 0x57, 0x97) } {
@@ -779,7 +781,7 @@ foreach ($resource in $scripts) {
       File = $resource.File
     })
 
-    $disassemblyRows.AddRange((Export-DisassemblyRows -Bytes $bytes -BodyStart $body -Script $scriptRow -Handler $handlerObject -Names $names.ToArray() -Constants $constants -Properties $properties -Globals $globals -Args $args -Locals $locals))
+    $disassemblyRows.AddRange((Export-DisassemblyRows -Bytes $bytes -BodyStart $body -Script $scriptRow -Handler $handlerObject -Names $names.ToArray() -Constants $constants -Properties $properties -Globals $globals -HandlerArgs $args -Locals $locals))
   }
 
   $scriptOrdinal++
@@ -872,6 +874,21 @@ foreach ($row in $disassemblyArray) {
     { $_ -in @("push-arg-count-call", "push-arg-count-call16", "push-arg-count-call-return", "push-arg-count-call-return16") } {
       $kind = if ($row.Mnemonic -like "*return*") { "argc-return" } else { "argc-no-return" }
       Push-Expr $stack ([string]$row.Operand) $kind
+      continue
+    }
+    { $_ -in @("push-entity-name-property", "push-entity-name-property16") } {
+      $argc = Pop-Expr $stack
+      $argCount = 0
+      if ($argc.Kind -like "argc*") {
+        $argCount = [int]$argc.Expr
+      } else {
+        Push-Expr $stack $argc.Expr $argc.Kind
+      }
+      for ($argIndex = 0; $argIndex -lt $argCount; $argIndex++) {
+        [void](Pop-Expr $stack)
+      }
+      $target = if ($row.Resolved) { "the $($row.Resolved)" } else { "namedEntity[$($row.Operand)]" }
+      Push-Expr $stack $target "entity"
       continue
     }
     "inverse" {
