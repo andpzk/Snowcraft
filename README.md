@@ -11,8 +11,6 @@ The mirrored content comes from [Archive.org](https://archive.org/details/snowcr
 Snowcraft, a simple game where the player controls 3 kids who have a snowball fight against computer-controlled teams with ever increasing number of players.
 ```
 
-I am also attempting to make a recreation of the game that can run with [ruffle-rs](https://ruffle.rs/) ( [GitHub link for development](https://github.com/ruffle-rs/ruffle) )
-
 ***
 
 ## Run on Windows 11
