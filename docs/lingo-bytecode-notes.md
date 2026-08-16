@@ -279,6 +279,12 @@ generates these ignored CSVs:
   - Stack-simulated pseudo-Lingo statements for simple assignments, calls,
     branches, returns, sprite property access, `point(...)`, `go(...)`, and
     other common expressions.
+- `reverse/lingo-basic-blocks.csv`
+  - One row per recovered handler basic block, with start/end offsets,
+    terminal opcode, state names assigned in the block, and pseudo statements.
+- `reverse/lingo-control-flow-edges.csv`
+  - One row per recovered control-flow edge, including conditional true/false,
+    fallthrough, jump, loop-back, and return edges.
 - `reverse/lingo-call-sites.csv`
   - One row per local/named call, with nearby pushed constants and the last
     nearby constant. This is especially useful for `puppetSound`.
@@ -297,6 +303,10 @@ property access should be enough to build a state-machine map for the green and
 red actors.
 
 See `docs/lingo-state-machine-notes.md` for the current derived state map.
+
+The current control-flow export resolves all branch and jump targets to block
+starts: `320` basic blocks and `451` edges, with no unresolved targets in the
+generated Snowcraft data.
 
 ## Open Questions
 

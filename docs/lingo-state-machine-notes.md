@@ -8,6 +8,8 @@ Primary generated inputs:
 
 - `reverse/lingo-disassembly.csv`
 - `reverse/lingo-pseudocode.csv`
+- `reverse/lingo-basic-blocks.csv`
+- `reverse/lingo-control-flow-edges.csv`
 - `reverse/lingo-entity-ops.csv`
 - `reverse/lingo-member-assignments.csv`
 - `reverse/lingo-call-sites.csv`
@@ -23,8 +25,10 @@ bytecode table more closely for Director v4+ opcodes
   `sprite.memberNum = cast("<state>").number`.
 
 The stack-simulated exporter currently emits `558` pseudo-code rows and `78`
-sprite member assignments. This is still conservative, but it can already
-resolve useful expressions such as:
+sprite member assignments. It also emits `320` recovered basic blocks and `451`
+control-flow edges; see `docs/lingo-control-flow-notes.md` for the control-flow
+view. This is still conservative, but it can already resolve useful expressions
+such as:
 
 ```text
 cursor((-1))

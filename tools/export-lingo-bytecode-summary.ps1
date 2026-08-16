@@ -8,7 +8,9 @@ param(
   [string]$CallSitesOut = "reverse\lingo-call-sites.csv",
   [string]$EntityOpsOut = "reverse\lingo-entity-ops.csv",
   [string]$MemberAssignmentsOut = "reverse\lingo-member-assignments.csv",
-  [string]$PseudoOut = "reverse\lingo-pseudocode.csv"
+  [string]$PseudoOut = "reverse\lingo-pseudocode.csv",
+  [string]$BasicBlocksOut = "reverse\lingo-basic-blocks.csv",
+  [string]$ControlFlowEdgesOut = "reverse\lingo-control-flow-edges.csv"
 )
 
 $ErrorActionPreference = "Stop"
@@ -445,6 +447,41 @@ function Add-PseudoRow {
     Confidence = $Confidence
     File = $SourceRow.File
   })
+}
+
+function Convert-HexOffset {
+  param([string]$Value)
+
+  if (-not $Value) {
+    return 0
+  }
+  return [Convert]::ToInt32(($Value -replace "^0x", ""), 16)
+}
+
+function Get-InstructionSize {
+  param([object]$Row)
+
+  if ($Row.OperandHex) {
+    return 1 + (($Row.OperandHex.Length) / 2)
+  }
+  return 1
+}
+
+function Get-NextOffset {
+  param([object]$Row)
+
+  return (Convert-HexOffset $Row.BodyOffset) + (Get-InstructionSize $Row)
+}
+
+function Get-JumpTargetOffset {
+  param([object]$Row)
+
+  $current = Convert-HexOffset $Row.BodyOffset
+  $operand = if ($Row.Operand -ne "") { [int]$Row.Operand } else { 0 }
+  if ($Row.Mnemonic -in @("jump-back", "jump-back16")) {
+    return $current - $operand
+  }
+  return $current + $operand
 }
 
 $operandOps = @(0x41,0x42,0x43,0x44,0x45,0x49,0x4A,0x4B,0x4C,0x4F,0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0x5B,0x5C,0x5D,0x5F,0x60,0x61,0x62,0x63,0x64,0x65,0x66,0x67)
@@ -925,6 +962,137 @@ foreach ($row in $disassemblyArray) {
 }
 $pseudoRows | Export-Csv -LiteralPath $PseudoOut -NoTypeInformation
 
+$basicBlockRows = [System.Collections.Generic.List[object]]::new()
+$controlFlowRows = [System.Collections.Generic.List[object]]::new()
+$rowsByHandler = $disassemblyArray | Group-Object ScriptResourceIndex,HandlerOrdinal
+foreach ($handlerGroup in $rowsByHandler) {
+  $instructions = @($handlerGroup.Group | Sort-Object { Convert-HexOffset $_.BodyOffset })
+  if ($instructions.Count -eq 0) {
+    continue
+  }
+
+  $leaderSet = @{}
+  $leaderSet[(Convert-HexOffset $instructions[0].BodyOffset)] = $true
+  foreach ($instruction in $instructions) {
+    if ($instruction.Mnemonic -in @("jump", "jump16", "jump-back", "jump-back16", "jump-if-zero", "jump-if-zero16")) {
+      $target = Get-JumpTargetOffset $instruction
+      $leaderSet[$target] = $true
+      $next = Get-NextOffset $instruction
+      if ($instruction.Mnemonic -in @("jump-if-zero", "jump-if-zero16")) {
+        $leaderSet[$next] = $true
+      } elseif ($instruction.Mnemonic -notin @("jump-back", "jump-back16", "jump", "jump16")) {
+        $leaderSet[$next] = $true
+      }
+    } elseif ($instruction.Mnemonic -in @("return", "return-value")) {
+      $leaderSet[(Get-NextOffset $instruction)] = $true
+    }
+  }
+
+  $leaders = @($leaderSet.Keys | Sort-Object)
+  $blockByStart = @{}
+  for ($blockOrdinal = 0; $blockOrdinal -lt $leaders.Count; $blockOrdinal++) {
+    $startOffset = [int]$leaders[$blockOrdinal]
+    $endExclusive = if ($blockOrdinal + 1 -lt $leaders.Count) { [int]$leaders[$blockOrdinal + 1] } else { [int]::MaxValue }
+    $blockInstructions = @($instructions | Where-Object {
+      $offset = Convert-HexOffset $_.BodyOffset
+      $offset -ge $startOffset -and $offset -lt $endExclusive
+    })
+    if ($blockInstructions.Count -eq 0) {
+      continue
+    }
+
+    $actualStart = Convert-HexOffset $blockInstructions[0].BodyOffset
+    $lastInstruction = $blockInstructions[-1]
+    $actualEnd = Get-NextOffset $lastInstruction
+    $blockId = "{0}:{1}:{2}" -f $blockInstructions[0].ScriptResourceIndex,$blockInstructions[0].HandlerOrdinal,("0x{0:X}" -f $actualStart)
+    $blockByStart[$actualStart] = $blockId
+    $pseudoStatements = @($pseudoRows | Where-Object {
+      $_.ScriptResourceIndex -eq $blockInstructions[0].ScriptResourceIndex -and
+      $_.HandlerOrdinal -eq $blockInstructions[0].HandlerOrdinal -and
+      (Convert-HexOffset $_.BodyOffset) -ge $actualStart -and
+      (Convert-HexOffset $_.BodyOffset) -lt $actualEnd
+    } | Select-Object -ExpandProperty Statement)
+    $memberStateStatements = @($pseudoStatements | Where-Object { $_ -match 'set the memberNum of sprite .+ = the number of cast "([^"]+)"' })
+    $states = @($memberStateStatements | ForEach-Object {
+      if ($_ -match 'set the memberNum of sprite .+ = the number of cast "([^"]+)"') {
+        $Matches[1]
+      }
+    } | Select-Object -Unique)
+
+    $basicBlockRows.Add([pscustomobject]@{
+      BlockId = $blockId
+      ScriptResourceIndex = $blockInstructions[0].ScriptResourceIndex
+      ScriptOrdinal = $blockInstructions[0].ScriptOrdinal
+      LctxId = $blockInstructions[0].LctxId
+      AssemblyId = $blockInstructions[0].AssemblyId
+      Handler = $blockInstructions[0].Handler
+      HandlerOrdinal = $blockInstructions[0].HandlerOrdinal
+      StartOffset = ("0x{0:X}" -f $actualStart)
+      EndOffsetExclusive = ("0x{0:X}" -f $actualEnd)
+      InstructionCount = $blockInstructions.Count
+      LastMnemonic = $lastInstruction.Mnemonic
+      LastOperand = $lastInstruction.Operand
+      StateNames = ($states -join ",")
+      PseudoStatements = ($pseudoStatements -join " | ")
+      File = $blockInstructions[0].File
+    })
+  }
+
+  foreach ($block in @($basicBlockRows | Where-Object { $_.ScriptResourceIndex -eq $instructions[0].ScriptResourceIndex -and $_.HandlerOrdinal -eq $instructions[0].HandlerOrdinal })) {
+    $blockInstructions = @($instructions | Where-Object {
+      $offset = Convert-HexOffset $_.BodyOffset
+      $offset -ge (Convert-HexOffset $block.StartOffset) -and $offset -lt (Convert-HexOffset $block.EndOffsetExclusive)
+    })
+    if ($blockInstructions.Count -eq 0) {
+      continue
+    }
+
+    $last = $blockInstructions[-1]
+    $fromStart = Convert-HexOffset $block.StartOffset
+    $next = Get-NextOffset $last
+    $edgeCandidates = [System.Collections.Generic.List[object]]::new()
+    if ($last.Mnemonic -in @("jump-if-zero", "jump-if-zero16")) {
+      $target = Get-JumpTargetOffset $last
+      $edgeCandidates.Add([pscustomobject]@{ Kind = "conditional-false"; Target = $target })
+      $edgeCandidates.Add([pscustomobject]@{ Kind = "conditional-true"; Target = $next })
+    } elseif ($last.Mnemonic -in @("jump", "jump16", "jump-back", "jump-back16")) {
+      $target = Get-JumpTargetOffset $last
+      $kind = if ($target -le $fromStart) { "loop-back" } else { "jump" }
+      $edgeCandidates.Add([pscustomobject]@{ Kind = $kind; Target = $target })
+    } elseif ($last.Mnemonic -in @("return", "return-value")) {
+      $edgeCandidates.Add([pscustomobject]@{ Kind = "return"; Target = "" })
+    } else {
+      $edgeCandidates.Add([pscustomobject]@{ Kind = "fallthrough"; Target = $next })
+    }
+
+    foreach ($edge in $edgeCandidates) {
+      $targetBlockId = ""
+      if ($edge.Target -ne "" -and $blockByStart.ContainsKey([int]$edge.Target)) {
+        $targetBlockId = $blockByStart[[int]$edge.Target]
+      }
+      $controlFlowRows.Add([pscustomobject]@{
+        FromBlockId = $block.BlockId
+        ToBlockId = $targetBlockId
+        ScriptResourceIndex = $block.ScriptResourceIndex
+        ScriptOrdinal = $block.ScriptOrdinal
+        LctxId = $block.LctxId
+        AssemblyId = $block.AssemblyId
+        Handler = $block.Handler
+        HandlerOrdinal = $block.HandlerOrdinal
+        FromOffset = $block.StartOffset
+        LastInstructionOffset = $last.BodyOffset
+        LastMnemonic = $last.Mnemonic
+        EdgeKind = $edge.Kind
+        TargetOffset = if ($edge.Target -ne "") { "0x{0:X}" -f [int]$edge.Target } else { "" }
+        Resolved = if ($targetBlockId) { "yes" } elseif ($edge.Kind -eq "return") { "terminal" } else { "no" }
+        File = $block.File
+      })
+    }
+  }
+}
+$basicBlockRows | Export-Csv -LiteralPath $BasicBlocksOut -NoTypeInformation
+$controlFlowRows | Export-Csv -LiteralPath $ControlFlowEdgesOut -NoTypeInformation
+
 $entityOpRows = [System.Collections.Generic.List[object]]::new()
 for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
   $row = $disassemblyArray[$i]
@@ -1069,6 +1237,8 @@ $callRows | Export-Csv -LiteralPath $CallSitesOut -NoTypeInformation
 "Lingo constants: $($constantRows.Count) -> $ConstantsOut"
 "Lingo disassembly rows: $($disassemblyRows.Count) -> $DisassemblyOut"
 "Lingo pseudocode rows: $($pseudoRows.Count) -> $PseudoOut"
+"Lingo basic blocks: $($basicBlockRows.Count) -> $BasicBlocksOut"
+"Lingo control-flow edges: $($controlFlowRows.Count) -> $ControlFlowEdgesOut"
 "Lingo call-site rows: $($callRows.Count) -> $CallSitesOut"
 "Lingo entity/property ops: $($entityOpRows.Count) -> $EntityOpsOut"
 "Lingo member assignments: $($memberAssignmentRows.Count) -> $MemberAssignmentsOut"

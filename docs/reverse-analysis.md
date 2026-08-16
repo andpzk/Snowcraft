@@ -478,6 +478,8 @@ reverse/lingo-handlers.csv
 reverse/lingo-constants.csv
 reverse/lingo-disassembly.csv
 reverse/lingo-pseudocode.csv
+reverse/lingo-basic-blocks.csv
+reverse/lingo-control-flow-edges.csv
 reverse/lingo-call-sites.csv
 reverse/lingo-entity-ops.csv
 reverse/lingo-member-assignments.csv
@@ -522,8 +524,9 @@ Director entity/property usage such as `the memberNum of sprite`,
 `the loc of sprite`, `the locH/locV of sprite`, `the timer`, and
 `the number of cast`. `lingo-pseudocode.csv` adds a conservative stack-simulated
 pseudo-Lingo layer over simple assignments, calls, branches, and returns.
-Current state-assignment evidence includes `78` `sprite.memberNum` writes and
-`558` pseudo-code rows. The strongest actor-state map is documented in
+Current state-assignment evidence includes `78` `sprite.memberNum` writes,
+`558` pseudo-code rows, `320` recovered basic blocks, and `451` recovered
+control-flow edges. The strongest actor-state map is documented in
 `docs/lingo-state-machine-notes.md`.
 
 Useful pseudo-code examples now include:
