@@ -149,7 +149,8 @@ word 1 of mn = "sb"
 myRange = integer(word 2 of mn) * 2
 ```
 
-`0318.prepareFrame` appears to move red snowballs toward green sprites:
+`0318.prepareFrame` moves red snowballs toward green sprites. The score's
+serialized behavior table attaches this script directly to channels `50..59`:
 
 - `snowball` moves by `point(-20, -10)`;
 - scans target sprites `18..29`;
@@ -158,7 +159,8 @@ myRange = integer(word 2 of mn) * 2
 - when range expires, projectile becomes `drop`;
 - `drop`, `splat`, and `melt` progress with dynamic `memberNum + 1`.
 
-`0341.prepareFrame` is the mirrored green snowball path:
+`0341.prepareFrame` is the mirrored green snowball path. The score attaches it
+directly to channels `40..49`:
 
 - `snowball` moves by `point(20, 10)`;
 - scans red target sprites `30..32`;
@@ -192,7 +194,9 @@ myRange = integer(word 2 of mn) * 2
 ## Porting Gaps
 
 The detailed channel allocation and cast-order evidence is recorded in
-`docs/gameplay-sprite-map.md`.
+`docs/gameplay-sprite-map.md`. Director-compatible timer, collision, mouse,
+audio, Stage-update, and navigation rules are recorded in
+`docs/director-runtime-semantics.md`.
 
 Important items still needed before a faithful web runtime:
 
@@ -201,13 +205,12 @@ Important items still needed before a faithful web runtime:
   names;
 - decode remaining dynamic member expressions beyond direct `cast("<name>")`
   assignments;
-- confirm Director `timer` units and map `myTempo` into a browser game loop;
-- confirm Director `point` comparison semantics;
-- implement Director-like `intersects`, `soundBusy`, `startTimer`, sprite
-  registration points, and cast-member lookup;
+- use the recovered Director runtime-semantic contract for `timer`, `random`,
+  `point`, `intersects`, `soundBusy`, and `startTimer` when implementing the
+  browser game loop;
 - recover absolute member ids for duplicate-name animation frames; relative
   sequences such as `drop -> splat -> melt` and `G Hit -> G Hit2` are now
   established;
-- prove the direct score-channel-to-behavior attachment for projectile pools;
-- finish validating projectile `sb N` power/range and the two projectile sprite slot
-  pools: green uses `40..49`, red uses `50..59`.
+- finish validating projectile `sb N` power/range and absolute cast-member ids;
+  the pools and attached scripts are now proven (`40..49` uses `0341`,
+  `50..59` uses `0318`).

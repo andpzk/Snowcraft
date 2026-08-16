@@ -62,7 +62,7 @@ and an action/behavior member is attached:
 | 85 | after `Level 3` | 20 | 98 | 98 | Same base formation plus four `G ready` entries |
 | 105 | after `Level 4` | 22 | 98 | 98 | Same base formation plus six `G ready` entries |
 | 125 | after `Level 5` | 22 | 98 | 98 | Same base formation plus six `G ready` entries in a wider spread |
-| 161 | after `Level 6` | 33 | 98 | 98 | Large final setup or finale-style formation |
+| 161 | after `Level 6` | 33 | 98 | 98 | Dense final/finale-style formation; initializer is `[#gd: 12, #level: 4]` |
 
 The score's level labels are probably entry points into short scripted score
 segments. The gameplay state is more likely initialized at the later setup
@@ -114,6 +114,11 @@ After the `Level 6` label, frames `130-161` do not match the shorter repeated
 intro pattern. The block gradually fills many more channels. Frame `161` is the
 clearest settled state because it has action/behavior member `98` attached and
 `33` active sprites.
+
+The initializer detail is now decoded directly: frame `161` uses
+`[#gd: 12, #level: 4]`, not a unique level-6 property list. This strengthens
+the interpretation of the block as a finale, reprise, or reused setup rather
+than evidence for a sixth normal gameplay configuration.
 
 Likely actor/body positions at frame `161`:
 
@@ -176,10 +181,10 @@ asset.
 - The exact team semantics for channels `30`, `31`, `32`, and `33` still need
   Lingo bytecode confirmation. Their positions and walk-in behavior make them
   red-side/rest-like, but the cast resolver sometimes reports green assets.
-- Level numbering may be offset by the Director labels. The script string data
-  has level records up to `#level: 5`, while the score labels include
-  `Level 6`. The `Level 6` label may be a final/win/finale block rather than a
-  normal sixth gameplay level.
+- Level numbering is not a simple label-to-initializer sequence. The score has
+  a `Level 6` label, but its later controller instance explicitly reuses
+  `#level: 4`; the block may be a final/win/finale route rather than a normal
+  sixth gameplay level.
 
 ## Working Hypothesis
 
@@ -187,5 +192,5 @@ The Director score stores reusable entrance and setup formations, while Lingo
 probably activates and drives the real gameplay actors. For Level 2-5, the
 score repeats a fixed six-character walk-in, then adds progressively more
 `G ready`-dimension placeholders. For the `Level 6` block, the score builds a
-larger dense formation that likely represents the final setup or a finale after
-the main five gameplay levels.
+larger dense formation with a reused level-4 controller initializer, likely a
+final setup or finale after the main five distinct gameplay configurations.

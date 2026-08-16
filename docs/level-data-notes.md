@@ -83,8 +83,9 @@ member `98`, not to member `95`.
 
 ## Level Property Data
 
-String extraction in `docs/reverse-analysis.md` found these behavior initializer
-property lists:
+`tools/export-score-timeline.ps1` now follows each behavior initializer index
+back into the VWSC detail table and decodes printable initializer text. The
+level-controller instances contain these exact property lists:
 
 | Inferred level property | `gd` | Extracted property list |
 | ---: | ---: | --- |
@@ -93,6 +94,12 @@ property lists:
 | 3 | 7 | `[#gd: 7, #level: 3]` |
 | 4 | 9 | `[#gd: 9, #level: 4]` |
 | 5 | 12 | `[#gd: 12, #level: 5]` |
+| 4 (reused at frame 161) | 12 | `[#gd: 12, #level: 4]` |
+
+The first five rows occur at setup frames `35`, `65`, `85`, `105`, and `125`.
+The repeated level-4 row is initializer `9020` at frame `161`, after the score
+label `Level 6`. Therefore the score does not expose a unique `#level: 6`
+controller configuration; its late dense block reuses `gd: 12, level: 4`.
 
 `getPropertyDescriptionList` in script `0257` confirms the two author-facing
 property labels:
@@ -100,10 +107,9 @@ property labels:
 - property `gd` is described with the string `Number of Green:`
 - property `level` is described with the string `Level:`
 
-The score has a `Level 6` label and a later member `98` initializer at frame
-`161`, but the simple string extraction currently exposes only the five
-property-list strings above. Treat the frame `161` / initializer `9020` data as
-not fully resolved yet.
+This does not by itself prove why the author reused level `4`; it may be a
+finale/reprise route or an authoring mistake. A web port should preserve the
+observed property data until runtime navigation proves a different intent.
 
 ## Script `0023.startMovie`
 
@@ -156,10 +162,10 @@ if gRDead == 3 then
 else if gGdead == gd then
   clearGlobals()
   nextLevel()
-  go("Level" joined with an expression based on level and 1)
+  go("Level" && (level + 1))
 
 else
-  go(<unresolved expression>)
+  go(the frame)
 end if
 ```
 
@@ -179,14 +185,11 @@ Evidence for the second branch:
 - `0xE4..0xE8`: compares global `gGdead` to property `gd`
 - `0xEE`: calls `clearGlobals`
 - `0xF2`: calls `nextLevel`
-- `0xF4..0xFE`: pushes `Level`, reads property `level`, combines it with an
-  arithmetic expression involving `1`, and calls `go`
+- `0xF4..0xFE`: builds `("Level" && (level + 1))` and calls `go`
 
-The exact target-label expression should be treated as not fully decompiled yet:
-the current disassembler names the arithmetic opcode as `subtract`, but this
-needs validation before turning it into final source-level Lingo. The important
-confirmed fact is that the branch builds a label from the string `Level` and the
-behavior property `level`, then passes it to `go`.
+The final fallback at `0x105..0x109` pushes the named Director entity
+`the frame` and calls `go`, keeping the controller on its current score frame
+when neither win/loss condition fires.
 
 ## Script `0023.nextLevel`
 
@@ -202,8 +205,8 @@ if soundBusy(1) then
       set member to "R rest"
   updateStage()
   startTimer()
-  wait until a timer-like property reaches 8
-  loop back while needed
+  wait until the timer reaches 8
+  recheck soundBusy(1)
 end if
 puppetSound("ugly")
 return
@@ -237,7 +240,5 @@ sound.
 
 Open items for a later pass:
 
-- Decode the exact `go("Level" ...)` arithmetic/string expression.
-- Resolve the frame `161` member `98` initializer data for the `Level 6` path.
 - Confirm the runtime meaning and initial values of `gRDead` and `gGdead` by
   decompiling the relevant parts of scripts `0445`, `0579`, and `clearGlobals`.

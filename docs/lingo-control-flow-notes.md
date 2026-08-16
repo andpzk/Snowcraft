@@ -10,6 +10,9 @@ Primary generated inputs:
 - `reverse/lingo-pseudocode.csv`
 - `reverse/lingo-basic-blocks.csv`
 - `reverse/lingo-control-flow-edges.csv`
+- `reverse/lingo-control-flow-analysis.csv`
+- `reverse/lingo-natural-loops.csv`
+- `reverse/lingo-control-flow-analysis-manifest.csv`
 - `reverse/lingo-state-transitions.csv`
 - `reverse/lingo-structured-pseudocode/*.txt`
 - `reverse/lingo-member-assignments.csv`
@@ -26,6 +29,9 @@ Current counts:
 | --- | ---: |
 | `lingo-basic-blocks.csv` | 320 |
 | `lingo-control-flow-edges.csv` | 451 |
+| `lingo-control-flow-analysis.csv` | 320 |
+| `lingo-natural-loops.csv` | 16 |
+| `lingo-control-flow-analysis-manifest.csv` | 23 |
 
 All current control-flow targets resolve to a recovered block:
 
@@ -104,10 +110,40 @@ The block and edge CSVs now feed two port-facing views:
   conditions, assigned states, sounds, globals, locations, and edge targets;
 - use `lingo-structured-pseudocode/*.txt` for exact handler flow expressed as
   labeled blocks with explicit `if/else/goto`, loop-back, and return edges.
+- use `docs/lingo-handler-regions.md` for the manual high-level regions of the
+  gameplay-critical handlers, while retaining the generated CFG as the oracle.
+- use `docs/director-runtime-semantics.md` for the runtime operations that the
+  recovered Lingo expects from a future implementation.
 
 The structured export currently emits all `23` handlers with `0` unparsed
 branch conditions. The state-transition export currently emits `203` relevant
 blocks.
+
+## Dominators And Natural Loops
+
+`tools/export-lingo-control-flow-analysis.ps1` computes reachability,
+dominators, post-dominators, conditional merge blocks, and natural loops from
+the exact block/edge CSVs. It validates that every reachable non-entry block
+has an immediate dominator and that each natural-loop header dominates every
+member of that loop.
+
+All current `320` blocks are reachable. The `16` dominance-derived back edges
+match the `16` previously classified `loop-back` edges. Important loops are:
+
+| Handler | Header | Latch | Blocks | Role |
+| --- | --- | --- | ---: | --- |
+| `0579.prepareFrame` | `0x232` | `0x291` | 3 | Search green projectile pool `40..49`. |
+| `0445.mouseDown` | `0x329` | `0x3DB` | 10 | Drag and charge while `the stillDown`. |
+| `0445.mouseDown` | `0x3E1` | `0x448` | 3 | Search red projectile pool `50..59`. |
+| `0318.prepareFrame` | `0x122` | `0x173` | 6 | Scan green targets `18..29`. |
+| `0341.prepareFrame` | `0x111` | `0x192` | 8 | Scan red targets `30..32`. |
+| `0257.exitFrame` | `0x68` | `0x95` | 5 | Apply `G yea` to green channels. |
+| `0257.exitFrame` | `0xA6` | `0xAE` | 2 | Clear runtime/effect channels. |
+
+The analysis currently finds `112` conditional blocks with a concrete
+post-dominator merge and `19` whose branches terminate through different exits.
+This is enough structure to lift many regions into `if`, `while`, and counted
+loop constructs while retaining the block IR as the behavioral oracle.
 
 ## Graphviz Export
 

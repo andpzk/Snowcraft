@@ -68,6 +68,7 @@ powershell -ExecutionPolicy Bypass -File tools/export-bitmap-metadata.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-key-map.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-strings.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-bytecode-summary.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-lingo-control-flow-analysis.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-control-flow-graphs.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-structured-pseudocode.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-state-transitions.ps1
@@ -257,6 +258,7 @@ reverse/score-labels.csv
 reverse/score-frame-summary.csv
 reverse/score-frame-sprites.csv
 reverse/score-script-details.csv
+reverse/score-sprite-behaviors.csv
 reverse/cast-member-map.csv
 ```
 
@@ -275,6 +277,7 @@ Sprite record size:        24
 Director channels:         126
 Displayed sprite channels: 120
 Max touched sprite channel: 60
+Sprite behavior rows:       188
 ```
 
 Director stores `HeaderFrameCount` as `0` here, so the exporter follows the
@@ -303,7 +306,11 @@ The score data makes the movie structure clearer:
 - `score-frame-sprites.csv` shows per-frame active sprites with channel,
   cast member id, position, size, ink data, and sprite list id.
 - `score-script-details.csv` joins frame action members to the D6 sprite detail
-  table, exposing the frame script behavior member and initializer index.
+  table, exposing the frame script behavior member, initializer index, decoded
+  printable initializer text, and parsed `gd`/`level` values.
+- `score-sprite-behaviors.csv` also reads behaviors from inactive sprite
+  channels, validates their 8-byte records, and joins behavior members to Lingo
+  scripts by `AssemblyId`.
 - `cast-member-map.csv` parses `CAS*` as a Director cast slot table and helps
   distinguish score cast slots from raw resource indexes.
 
@@ -313,24 +320,37 @@ Detailed level/formation notes are tracked in
 Current frame-script evidence:
 
 ```text
-Frame 35   ActionMember 98   BehaviorMember 98   Initializer 7105
+Frame 35   ActionMember 98   BehaviorMember 98   Initializer 7105   gd=3  level=1
 Frame 45   ActionMember 105  BehaviorMember 105  Initializer 0
 Frame 50   ActionMember 95   BehaviorMember 95   Initializer 0   Level 2
-Frame 65   ActionMember 98   BehaviorMember 98   Initializer 7106
+Frame 65   ActionMember 98   BehaviorMember 98   Initializer 7106   gd=5  level=2
 Frame 70   ActionMember 95   BehaviorMember 95   Initializer 0   Level 3
-Frame 85   ActionMember 98   BehaviorMember 98   Initializer 8280
+Frame 85   ActionMember 98   BehaviorMember 98   Initializer 8280   gd=7  level=3
 Frame 90   ActionMember 95   BehaviorMember 95   Initializer 0   Level 4
-Frame 105  ActionMember 98   BehaviorMember 98   Initializer 8290
+Frame 105  ActionMember 98   BehaviorMember 98   Initializer 8290   gd=9  level=4
 Frame 110  ActionMember 95   BehaviorMember 95   Initializer 0   Level 5
-Frame 125  ActionMember 98   BehaviorMember 98   Initializer 8300
+Frame 125  ActionMember 98   BehaviorMember 98   Initializer 8300   gd=12 level=5
 Frame 130  ActionMember 95   BehaviorMember 95   Initializer 0   Level 6
-Frame 161  ActionMember 98   BehaviorMember 98   Initializer 9020
+Frame 161  ActionMember 98   BehaviorMember 98   Initializer 9020   gd=12 level=4
 ```
 
 The behavior members above should be treated as Director/Lingo cast-member
 numbers, not raw `CASt` resource indexes. Several numeric values collide with
 bitmap resource indexes such as `power 0`, so naming them by resource index
 would be misleading.
+
+The same serialized behavior table directly proves the main runtime mapping:
+
+```text
+Channels 18..29  -> behavior 99  -> Lscr 0579 (green actors)
+Channels 30..32  -> behavior 100 -> Lscr 0445 (red actors/input)
+Channels 40..49  -> behavior 102 -> Lscr 0341 (green projectiles)
+Channels 50..59  -> behavior 101 -> Lscr 0318 (red projectiles)
+```
+
+Projectile channels are inactive in `score-frame-sprites.csv`, but their
+behavior attachments occur in all six gameplay setup spans. This resolves the
+previous direction-based inference with direct score evidence.
 
 Important caveat: the score stores Director cast member numbers, while the raw
 resource files are numbered by Director resource index. The `CAS*` resource is
@@ -403,6 +423,7 @@ C:\WINNT\Profiles\wells\Desktop\snowcraft98
 [#gd: 7, #level: 3]
 [#gd: 9, #level: 4]
 [#gd: 12, #level: 5]
+[#gd: 12, #level: 4]
 GreenWinLevel 2Level 3Level 4Level 5Level 6
 ```
 
@@ -414,9 +435,10 @@ These names suggest the original game is level-driven:
 - Level 4 uses `gd: 9`.
 - Level 5 uses `gd: 12`.
 
-The exact meaning of `gd` still needs confirmation from the Lingo scripts and
-runtime behavior, but it is likely tied to opponent count, difficulty, or a
-spawn/formation table.
+Script `0257` author-labels `gd` as `Number of Green:` and compares it directly
+with `gGdead`, so it is the active green-character count required to end a
+level. The late frame `161` initializer reuses level `4` with `gd: 12`; there
+is no distinct `#level: 6` property list in the score.
 
 Detailed level-flow notes are tracked in `docs/level-data-notes.md`.
 
@@ -483,6 +505,9 @@ reverse/lingo-disassembly.csv
 reverse/lingo-pseudocode.csv
 reverse/lingo-basic-blocks.csv
 reverse/lingo-control-flow-edges.csv
+reverse/lingo-control-flow-analysis.csv
+reverse/lingo-natural-loops.csv
+reverse/lingo-control-flow-analysis-manifest.csv
 reverse/control-flow-graphs/manifest.csv
 reverse/lingo-structured-pseudocode/manifest.csv
 reverse/lingo-state-transitions.csv
@@ -494,10 +519,10 @@ reverse/lingo-member-assignments.csv
 Current script role findings:
 
 ```text
-0579  likely green character behavior
-0445  likely red character behavior
-0318  likely green snowball/projectile behavior
-0341  likely red snowball/projectile behavior
+0579  green character behavior; attached to channels 18..29
+0445  red character/input behavior; attached to channels 30..32
+0318  red-to-green projectile behavior; attached to channels 50..59
+0341  green-to-red projectile behavior; attached to channels 40..49
 0257  likely level/state data; owns gd and level properties
 0023  movie startup / level flow / ridicule behavior
 ```
@@ -506,6 +531,11 @@ The current gameplay state reconstruction is tracked in
 `docs/gameplay-state-map.md`. It summarizes the green actor (`0579`), red actor
 (`0445`), projectile scripts (`0318` and `0341`), level controller (`0257`), and
 movie helper script (`0023`) in terms useful for a future web runtime.
+`docs/lingo-handler-regions.md` adds a block-by-block manual annotation of the
+major handlers, including exact entry gates, state regions, natural loops,
+side effects, and terminal exits. `docs/director-runtime-semantics.md` separates
+source-backed Director behavior from Snowcraft-specific inference and remaining
+native verification targets.
 The exact sprite-channel allocation, companion offsets, projectile pools, and
 cast arithmetic constraints are tracked in `docs/gameplay-sprite-map.md`.
 
@@ -546,6 +576,11 @@ The control-flow layer also generates exact labeled block IR for all `23`
 handlers and `203` state-transition/effect rows. All branch conditions in the
 structured export are currently parsed, and all local-variable operands resolve
 through the Director 5+ 8-byte slot stride.
+
+Dominance analysis now covers all `320` reachable blocks and recovers `16`
+natural loops. It also exposes immediate post-dominators and conditional merge
+blocks, providing the structural evidence needed to lift the exact block IR
+into source-like gameplay regions.
 
 The current pseudo-code pass resolves all observed constant and global operands.
 Important globals now resolve by their original Lingo names:

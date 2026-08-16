@@ -11,6 +11,7 @@ Primary evidence:
 - `reverse/lingo-member-assignments.csv`
 - `reverse/lingo-entity-ops.csv`
 - `reverse/score-frame-sprites.csv`
+- `reverse/score-sprite-behaviors.csv`
 - `reverse/score-summary.csv`
 - `reverse/cast-index.csv`
 - `reverse/cast-member-map.csv`
@@ -26,14 +27,41 @@ Primary evidence:
 | `33` | Shared red interaction/animation overlay | Follows the selected red body `sp` | Confirmed runtime use. `0445.mouseEnter` assigns `R pop`; `mouseDown` assigns `R cock` and `R toss`; its location is copied from `sp`. Projectile hits and red death/leave paths clear it to `nothing`. The score also has an active channel-33 row from frames `31..161`, usually at `(73,46)`, so its static setup role is not fully explained. |
 | `34` | Red power meter | Follows the selected red body `sp` | Confirmed. `0445.mouseEnter` assigns `power 0`; `mouseDown` assigns `number(cast "power 0") + power` after clamping `power` to `0..8`; throw/leave/hit paths clear it. No active channel-34 row exists in the exported score timeline. |
 | `35..39` | Reserved runtime/scratch or effect slots | Included in the global runtime cleanup | Unconfirmed exact purpose. No direct assignment or active score row was found. `0257.exitFrame` clears the inclusive range `35..59` to `nothing` after a green win (`0xA4`, `0xAB`, `0xB9`). These channels must remain allocated even though their producer is not yet recovered. |
-| `40..49` | Green-owned projectile pool | Projectile behavior is the green-to-red path (`0341`) | Confirmed pool, inferred behavior attachment. `0579.prepareFrame` searches `40..49` (`0x230`, `0x237`), requires a `nothing` member, assigns `cast("sb" && (random(4) + 4))`, and copies the green actor location. `0341` moves by `point(20,10)` and targets `30..32`, matching this pool's owner/direction. |
-| `50..59` | Red-owned projectile pool | Projectile behavior is the red-to-green path (`0318`) | Confirmed pool, inferred behavior attachment. `0445.mouseDown` searches `50..59` (`0x3DF`, `0x3E6`), requires `nothing`, assigns `cast("sb" && power)`, and copies the red actor location. `0318` moves by `point(-20,-10)` and targets `18..29`, matching this pool's owner/direction. |
+| `40..49` | Green-owned projectile pool | `AssemblyId 102`, Lscr resource `0341` | Confirmed directly. Every channel has this serialized behavior attachment in all six gameplay setup spans. `0579.prepareFrame` searches `40..49` (`0x230`, `0x237`), assigns `cast("sb" && (random(4) + 4))`, and copies the green actor location. `0341` moves by `point(20,10)` and targets `30..32`. |
+| `50..59` | Red-owned projectile pool | `AssemblyId 101`, Lscr resource `0318` | Confirmed directly. Every channel has this serialized behavior attachment in all six gameplay setup spans. `0445.mouseDown` searches `50..59` (`0x3DF`, `0x3E6`), assigns `cast("sb" && power)`, and copies the red actor location. `0318` moves by `point(-20,-10)` and targets `18..29`. |
 
 There are zero active `score-frame-sprites.csv` rows for channels `34..59`.
 This is not evidence that the channels do not exist: `score-summary.csv` reports
 `126` channels, `120` displayed channels, and a maximum touched sprite channel
 of `60`. The score exporter emits active sprite rows; Lingo activates the power
 and projectile slots at runtime.
+
+### Direct Behavior Attachments
+
+Director stores each sprite's `SpriteListIdx` in its score-channel record. The
+detail at that index contains the sprite-info span; the next detail is an array
+of 8-byte behavior records: cast library, behavior member, and initializer
+index. `score-sprite-behaviors.csv` parses these records before filtering out
+inactive sprites and joins each behavior member to `lingo-scripts.csv` by
+`AssemblyId`.
+
+The current export contains `188` unique channel/span behavior rows:
+
+| Channels | Behavior member | Lscr resource | Rows | Direct conclusion |
+| --- | --- | --- | --- | --- |
+| `18..29` | `99` | `0579` | `48` | Green actor behavior. Later levels activate progressively more of the twelve slots. |
+| `30..32` | `100` | `0445` | `18` | Red actor and mouse-input behavior. |
+| `40..49` | `102` | `0341` | `60` | Green-to-red projectile behavior, ten channels across six setup spans. |
+| `50..59` | `101` | `0318` | `60` | Red-to-green projectile behavior, ten channels across six setup spans. |
+
+The other two rows are short `mouseDown` attachments on channels `4` and `6`
+during frames `40..45` (behavior `97` / Lscr `0573` and behavior `76` / Lscr
+`0283`). They are not part of the actor/projectile channel ranges.
+
+The six projectile spans are frames `31..35`, `61..65`, `81..85`,
+`101..105`, `121..125`, and `157..161`. This proves that a channel may carry
+a behavior while its cast member and dimensions leave it absent from the
+active-sprite CSV.
 
 ### Green Actor Allocation
 
@@ -154,9 +182,6 @@ evidence.
 - Channels `34..59` have no active exported score rows. Their initial
   `nothing` state is required by Lingo searches but is not directly represented
   by those rows.
-- The behavior-script attachment of `0341` to `40..49` and `0318` to `50..59`
-  is inferred from owner, movement direction, and target ranges. The current
-  generated CSVs do not expose a direct channel-to-Lscr attachment table.
 - Absolute member numbers are incomplete outside a few resolver anchors.
   Relative arithmetic relationships (`+1`, `+power`, `+random`) are stronger
   evidence than `CastResourceIndex`, file-relative order, or a lone

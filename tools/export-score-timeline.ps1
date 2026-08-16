@@ -9,7 +9,9 @@ param(
   [string]$LabelsOut = "reverse\score-labels.csv",
   [string]$FramesOut = "reverse\score-frame-summary.csv",
   [string]$SpritesOut = "reverse\score-frame-sprites.csv",
-  [string]$ScriptDetailsOut = "reverse\score-script-details.csv"
+  [string]$ScriptDetailsOut = "reverse\score-script-details.csv",
+  [string]$LingoScripts = "reverse\lingo-scripts.csv",
+  [string]$SpriteBehaviorsOut = "reverse\score-sprite-behaviors.csv"
 )
 
 $ErrorActionPreference = "Stop"
@@ -143,6 +145,52 @@ function Get-HexPreview {
   return ($bytes[$Start..($Start + $take - 1)] | ForEach-Object { "{0:X2}" -f $_ }) -join " "
 }
 
+function Get-InitializerInfo {
+  param([uint32]$DetailIndex)
+
+  $result = [ordered]@{
+    Size = ""
+    HexPreview = ""
+    Text = ""
+    Gd = ""
+    Level = ""
+  }
+  if ($DetailIndex -eq 0) {
+    return [pscustomobject]$result
+  }
+
+  $bounds = Get-DetailBounds -DetailIndex $DetailIndex
+  if (-not $bounds) {
+    return [pscustomobject]$result
+  }
+
+  $result.Size = $bounds.Size
+  $result.HexPreview = Get-HexPreview -Start $bounds.Start -Size $bounds.Size
+  if ($bounds.Size -le 0) {
+    return [pscustomobject]$result
+  }
+
+  $initializerBytes = @($bytes[$bounds.Start..($bounds.End - 1)])
+  $nonAsciiBytes = @($initializerBytes | Where-Object {
+    $_ -ne 0 -and ($_ -lt 0x20 -or $_ -gt 0x7E)
+  })
+  if ($nonAsciiBytes.Count -gt 0) {
+    return [pscustomobject]$result
+  }
+
+  $result.Text = [Text.Encoding]::ASCII.GetString(
+    $bytes,
+    $bounds.Start,
+    $bounds.Size
+  ) -replace "`0+$", ""
+  if ($result.Text -match '^\[#gd:\s*(-?\d+),\s*#level:\s*(-?\d+)\]$') {
+    $result.Gd = [int]$Matches[1]
+    $result.Level = [int]$Matches[2]
+  }
+
+  return [pscustomobject]$result
+}
+
 if (-not (Test-Path -LiteralPath $ScoreResource)) {
   throw "Score resource not found: $ScoreResource. Run tools\export-director-resources.ps1 first."
 }
@@ -229,6 +277,15 @@ if (Test-Path -LiteralPath $SoundCatalog) {
   }
 }
 
+$lingoByAssemblyId = @{}
+if (Test-Path -LiteralPath $LingoScripts) {
+  foreach ($script in @(Import-Csv -LiteralPath $LingoScripts)) {
+    if ($script.AssemblyId) {
+      $lingoByAssemblyId[[string]$script.AssemblyId] = $script
+    }
+  }
+}
+
 $labels = Parse-Labels -Path $LabelsResource
 $labelByFrame = @{}
 foreach ($label in $labels) {
@@ -269,6 +326,7 @@ $spriteChannels = @{}
 $frameRows = [System.Collections.Generic.List[object]]::new()
 $spriteRows = [System.Collections.Generic.List[object]]::new()
 $scriptDetailRows = [System.Collections.Generic.List[object]]::new()
+$spriteBehaviorRowsByKey = @{}
 $position = $firstFramePosition
 $frameNumber = 1
 $maxTouchedChannel = 0
@@ -335,6 +393,76 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
     $castIndex = Read-U16BE -Bytes $state -Offset 6
     $width = Read-S16BE -Bytes $state -Offset 18
     $height = Read-S16BE -Bytes $state -Offset 16
+    $spriteListIdx = Read-U32BE -Bytes $state -Offset 8
+
+    if ($spriteListIdx -gt 0) {
+      $spriteInfoBounds = Get-DetailBounds -DetailIndex $spriteListIdx
+      $behaviorBounds = Get-DetailBounds -DetailIndex ($spriteListIdx + 1)
+      if ($behaviorBounds -and $behaviorBounds.Size -gt 0) {
+        if (($behaviorBounds.Size % 8) -ne 0) {
+          throw "Sprite list $spriteListIdx on channel $channel has a behavior detail size not divisible by 8: $($behaviorBounds.Size)"
+        }
+
+        $spriteInfoStartFrame = ""
+        $spriteInfoEndFrame = ""
+        $spriteInfoSize = ""
+        if ($spriteInfoBounds) {
+          $spriteInfoSize = $spriteInfoBounds.Size
+          if ($spriteInfoBounds.Size -ge 8) {
+            $spriteInfoStartFrame = Read-U32BE -Bytes $bytes -Offset $spriteInfoBounds.Start
+            $spriteInfoEndFrame = Read-U32BE -Bytes $bytes -Offset ($spriteInfoBounds.Start + 4)
+          }
+        }
+
+        for ($behaviorOffset = 0; $behaviorOffset -lt $behaviorBounds.Size; $behaviorOffset += 8) {
+          $behaviorOrdinal = [int]($behaviorOffset / 8)
+          $recordStart = $behaviorBounds.Start + $behaviorOffset
+          $behaviorCastLib = Read-U16BE -Bytes $bytes -Offset $recordStart
+          $behaviorMember = Read-U16BE -Bytes $bytes -Offset ($recordStart + 2)
+          $initializerIndex = Read-U32BE -Bytes $bytes -Offset ($recordStart + 4)
+          $initializer = Get-InitializerInfo -DetailIndex $initializerIndex
+          $lingoScript = if ($lingoByAssemblyId.ContainsKey([string]$behaviorMember)) {
+            $lingoByAssemblyId[[string]$behaviorMember]
+          } else {
+            $null
+          }
+          $rowKey = "$spriteListIdx|$channel|$behaviorOrdinal"
+
+          if ($spriteBehaviorRowsByKey.ContainsKey($rowKey)) {
+            $spriteBehaviorRowsByKey[$rowKey].LastObservedFrame = $frameNumber
+            if ($label) {
+              $spriteBehaviorRowsByKey[$rowKey].LastObservedLabel = $label
+            }
+            continue
+          }
+
+          $spriteBehaviorRowsByKey[$rowKey] = [pscustomobject]@{
+            SpriteListIdx = $spriteListIdx
+            Channel = [int]$channel
+            SpriteInfoSize = $spriteInfoSize
+            SpriteInfoStartFrame = $spriteInfoStartFrame
+            SpriteInfoEndFrame = $spriteInfoEndFrame
+            FirstObservedFrame = $frameNumber
+            LastObservedFrame = $frameNumber
+            FirstObservedLabel = $label
+            LastObservedLabel = $label
+            BehaviorOrdinal = $behaviorOrdinal
+            BehaviorCastLib = $behaviorCastLib
+            BehaviorMember = $behaviorMember
+            ScriptResourceIndex = if ($lingoScript) { $lingoScript.ResourceIndex } else { "" }
+            ScriptProperties = if ($lingoScript) { $lingoScript.Properties } else { "" }
+            ScriptGlobals = if ($lingoScript) { $lingoScript.Globals } else { "" }
+            InitializerIndex = $initializerIndex
+            InitializerSize = $initializer.Size
+            InitializerHexPreview = $initializer.HexPreview
+            InitializerText = $initializer.Text
+            InitializerGd = $initializer.Gd
+            InitializerLevel = $initializer.Level
+          }
+        }
+      }
+    }
+
     if ($castIndex -eq 0 -or $width -le 0 -or $height -le 0) {
       continue
     }
@@ -374,7 +502,7 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
       InkData = [int]$state[1]
       Ink = ([int]$state[1] -band 0x3f)
       CastLib = (Read-S16BE -Bytes $state -Offset 4)
-      SpriteListIdx = (Read-U32BE -Bytes $state -Offset 8)
+      SpriteListIdx = $spriteListIdx
       X = (Read-S16BE -Bytes $state -Offset 14)
       Y = (Read-S16BE -Bytes $state -Offset 12)
       Width = $width
@@ -400,6 +528,11 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
   $scriptBehaviorCastLib = ""
   $scriptBehaviorMember = ""
   $scriptBehaviorInitializerIndex = ""
+  $scriptBehaviorInitializerSize = ""
+  $scriptBehaviorInitializerHex = ""
+  $scriptBehaviorInitializerText = ""
+  $scriptBehaviorInitializerGd = ""
+  $scriptBehaviorInitializerLevel = ""
   $scriptBehaviorHex = ""
   $scriptBehaviorNameHint = ""
 
@@ -422,6 +555,12 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
         $scriptBehaviorMember = Read-U16BE -Bytes $bytes -Offset ($behaviorBounds.Start + 2)
         $scriptBehaviorInitializerIndex = Read-U32BE -Bytes $bytes -Offset ($behaviorBounds.Start + 4)
         $scriptBehaviorNameHint = Get-Name -Map $assetNames -Index $scriptBehaviorMember
+        $initializer = Get-InitializerInfo -DetailIndex $scriptBehaviorInitializerIndex
+        $scriptBehaviorInitializerSize = $initializer.Size
+        $scriptBehaviorInitializerHex = $initializer.HexPreview
+        $scriptBehaviorInitializerText = $initializer.Text
+        $scriptBehaviorInitializerGd = $initializer.Gd
+        $scriptBehaviorInitializerLevel = $initializer.Level
       }
     }
 
@@ -438,6 +577,11 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
       BehaviorMember = $scriptBehaviorMember
       BehaviorNameResourceIndexHint = $scriptBehaviorNameHint
       BehaviorInitializerIndex = $scriptBehaviorInitializerIndex
+      BehaviorInitializerSize = $scriptBehaviorInitializerSize
+      BehaviorInitializerHexPreview = $scriptBehaviorInitializerHex
+      BehaviorInitializerText = $scriptBehaviorInitializerText
+      InitializerGd = $scriptBehaviorInitializerGd
+      InitializerLevel = $scriptBehaviorInitializerLevel
       BehaviorHexPreview = $scriptBehaviorHex
     })
   }
@@ -457,6 +601,9 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
     ScriptInfoEndFrame = $scriptInfoEndFrame
     BehaviorMember = $scriptBehaviorMember
     BehaviorInitializerIndex = $scriptBehaviorInitializerIndex
+    BehaviorInitializerText = $scriptBehaviorInitializerText
+    InitializerGd = $scriptBehaviorInitializerGd
+    InitializerLevel = $scriptBehaviorInitializerLevel
     Sound1CastIndex = $sound1
     Sound1Name = (Get-Name -Map $soundNames -Index $sound1)
     Sound2CastIndex = $sound2
@@ -493,15 +640,19 @@ $summary = [pscustomobject]@{
   MaxTouchedSpriteChannel = $maxTouchedChannel
   LabelCount = $labels.Count
   SpriteRowCount = $spriteRows.Count
+  SpriteBehaviorRowCount = $spriteBehaviorRowsByKey.Count
 }
 
+$spriteBehaviorRows = @($spriteBehaviorRowsByKey.Values | Sort-Object SpriteInfoStartFrame, Channel, SpriteListIdx, BehaviorOrdinal)
 $summary | Export-Csv -LiteralPath $SummaryOut -NoTypeInformation
 $frameRows | Export-Csv -LiteralPath $FramesOut -NoTypeInformation
 $spriteRows | Export-Csv -LiteralPath $SpritesOut -NoTypeInformation
 $scriptDetailRows | Export-Csv -LiteralPath $ScriptDetailsOut -NoTypeInformation
+$spriteBehaviorRows | Export-Csv -LiteralPath $SpriteBehaviorsOut -NoTypeInformation
 
 "Exported score summary: $SummaryOut"
 "Exported score labels: $LabelsOut"
 "Exported frame summary: $FramesOut"
 "Exported frame sprites: $SpritesOut"
 "Exported score script details: $ScriptDetailsOut"
+"Exported score sprite behaviors: $SpriteBehaviorsOut"

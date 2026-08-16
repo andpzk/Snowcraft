@@ -13,6 +13,7 @@ $steps = @(
   @{ Name = "Export key map"; Script = "tools\export-key-map.ps1" },
   @{ Name = "Export Lingo strings"; Script = "tools\export-lingo-strings.ps1" },
   @{ Name = "Export Lingo bytecode summary"; Script = "tools\export-lingo-bytecode-summary.ps1" },
+  @{ Name = "Analyze Lingo control flow"; Script = "tools\export-lingo-control-flow-analysis.ps1" },
   @{ Name = "Export Lingo control-flow graphs"; Script = "tools\export-lingo-control-flow-graphs.ps1" },
   @{ Name = "Export structured Lingo pseudocode"; Script = "tools\export-lingo-structured-pseudocode.ps1" },
   @{ Name = "Export Lingo state transitions"; Script = "tools\export-lingo-state-transitions.ps1" },
