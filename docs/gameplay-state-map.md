@@ -131,9 +131,17 @@ this likely hides a Director mouse-state expression such as `stillDown`.
 
 ## Projectiles (`0318` and `0341`)
 
-Projectile members start as `sbN`, where `N` controls range/power. Both scripts
-convert an `sbN` marker into visible `snowball`, set `myRange = N * 2`, and
-play either `Whoosh` or `Whoosh Percusive`.
+Projectile members start as `sb N`, where `N` controls range/power. Both scripts
+parse the member name with Director chunk expressions, convert the marker into
+visible `snowball`, set `myRange = N * 2`, and play either `Whoosh` or
+`Whoosh Percusive`.
+
+Recovered pseudo-code evidence:
+
+```text
+word 1 of mn = "sb"
+myRange = integer(word 2 of mn) * 2
+```
 
 `0318.prepareFrame` appears to move red snowballs toward green sprites:
 
@@ -157,11 +165,11 @@ play either `Whoosh` or `Whoosh Percusive`.
 
 `0257.exitFrame` is the level controller:
 
-- if the red-dead/global-win counter reaches `3`, sprites `18..29` become
+- if `gRDead` reaches `3`, sprites `18..29` become
   `G yea`, sprites `35..59` become `nothing`, `ridicule()` runs twice,
   globals are cleared, and the movie jumps to `GreenWin`;
-- another branch compares a green-dead or level counter global to `gd`, then
-  clears globals, calls `nextLevel()`, and goes to `"Level" && (level + 1)`;
+- another branch compares `gGdead` to `gd`, then clears globals, calls
+  `nextLevel()`, and goes to `"Level" && (level + 1)`;
 - `getPropertyDescriptionList` exposes `gd` as `Number of Green:` and `level`
   as `Level:`.
 
@@ -179,14 +187,16 @@ play either `Whoosh` or `Whoosh Percusive`.
 
 Important items still needed before a faithful web runtime:
 
-- name unresolved globals such as `global[6]` and `global[11]`;
-- decode constant/member expressions that still appear as `<constant>`,
-  `0 of local[0]`, or `0 of local[8]`;
+- confirm whether `gRDead` / `gGdead` should be named `redDead` /
+  `greenDead` in the future web runtime, or kept close to the original Lingo
+  names;
+- decode remaining dynamic member expressions beyond direct `cast("<name>")`
+  assignments;
 - confirm Director `timer` units and map `myTempo` into a browser game loop;
 - confirm Director `point` comparison semantics;
 - implement Director-like `intersects`, `soundBusy`, `startTimer`, sprite
   registration points, and cast-member lookup;
 - map dynamic animation sequences driven by `memberNum + 1`, including
   `drop -> splat -> melt`, `G Hit -> G Hit2`, and red hit frames;
-- finish naming projectile `sbN` power/range and the two projectile sprite slot
+- finish validating projectile `sb N` power/range and the two projectile sprite slot
   pools: green uses `40..49`, red uses `50..59`.

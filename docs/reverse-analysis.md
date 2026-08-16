@@ -536,12 +536,28 @@ Current state-assignment evidence includes `78` `sprite.memberNum` writes,
 control-flow edges. The strongest actor-state map is documented in
 `docs/lingo-state-machine-notes.md`.
 
+The current pseudo-code pass resolves all observed constant and global operands.
+Important globals now resolve by their original Lingo names:
+
+```text
+gRDead  red defeated counter; checked by 0257.exitFrame against 3
+gGdead  green defeated counter; checked by 0257.exitFrame against gd
+```
+
+The projectile scripts now expose their member-name parsing:
+
+```text
+word 1 of mn = "sb"
+myRange = integer(word 2 of mn) * 2
+```
+
 Useful pseudo-code examples now include:
 
 ```text
 0023.startMovie       cursor((-1)); clearGlobals()
 0257.exitFrame        go(("Level" && (level + 1)))
 0318.prepareFrame     set the loc of sprite sp = the loc of sprite sp + point((-20), (-10))
+0318.prepareFrame     set myRange = (integer(word 2 of mn) * 2)
 0579.prepareFrame     set the memberNum of sprite sp = the number of cast "G windup"
 ```
 

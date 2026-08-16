@@ -376,6 +376,31 @@ function Format-ConstantExpr {
   return "<constant>"
 }
 
+function Test-ZeroExpr {
+  param([object]$Expr)
+
+  return ($Expr.Expr -eq "0")
+}
+
+function Format-ChunkSelection {
+  param(
+    [string]$Kind,
+    [object]$First,
+    [object]$Last,
+    [string]$Source
+  )
+
+  if (Test-ZeroExpr $First) {
+    return $Source
+  }
+
+  if ((Test-ZeroExpr $Last) -or $Last.Expr -eq $First.Expr) {
+    return "$Kind $($First.Expr) of $Source"
+  }
+
+  return "$Kind $($First.Expr) to $($Last.Expr) of $Source"
+}
+
 function Get-EntityStackInfo {
   param(
     [int]$Bank,
@@ -531,7 +556,7 @@ function Export-DisassemblyRows {
       $pos += 2
     }
 
-    if ($operand -ne "") {
+    if ($operand -is [int]) {
       switch ($opcode) {
         { $_ -in @(0x44, 0x84) } {
           $constant = Get-ConstantByTableOffset -Constants $Constants -TableOffset ([int]$operand)
@@ -545,7 +570,7 @@ function Export-DisassemblyRows {
           break
         }
         { $_ -in @(0x49, 0x89, 0x4F, 0x8F) } {
-          $resolved = if ([int]$operand -lt $Globals.Count) { $Globals[[int]$operand] } else { "" }
+          $resolved = Get-Name -Names $Names -Index ([int]$operand)
           break
         }
         { $_ -in @(0x4B, 0x8B, 0x51, 0x91) } {
@@ -854,7 +879,26 @@ foreach ($row in $disassemblyArray) {
       Push-Expr $stack "(-$($value.Expr))"
       continue
     }
-    { $_ -in @("multiply", "add", "subtract", "divide", "mod", "ampersand", "concat", "less-than", "less-than-equal", "not-equal", "equal", "greater-than", "greater-than-equal", "and", "or", "contains", "starts", "of", "intersects", "within") } {
+    "of" {
+      $source = Pop-Expr $stack
+      $lastLine = Pop-Expr $stack
+      $firstLine = Pop-Expr $stack
+      $lastItem = Pop-Expr $stack
+      $firstItem = Pop-Expr $stack
+      $lastWord = Pop-Expr $stack
+      $firstWord = Pop-Expr $stack
+      $lastChar = Pop-Expr $stack
+      $firstChar = Pop-Expr $stack
+
+      $expr = $source.Expr
+      $expr = Format-ChunkSelection "line" $firstLine $lastLine $expr
+      $expr = Format-ChunkSelection "item" $firstItem $lastItem $expr
+      $expr = Format-ChunkSelection "word" $firstWord $lastWord $expr
+      $expr = Format-ChunkSelection "char" $firstChar $lastChar $expr
+      Push-Expr $stack $expr "chunk"
+      continue
+    }
+    { $_ -in @("multiply", "add", "subtract", "divide", "mod", "ampersand", "concat", "less-than", "less-than-equal", "not-equal", "equal", "greater-than", "greater-than-equal", "and", "or", "contains", "starts", "intersects", "within") } {
       $right = Pop-Expr $stack
       $left = Pop-Expr $stack
       $operator = switch ($row.Mnemonic) {
@@ -875,7 +919,6 @@ foreach ($row in $disassemblyArray) {
         "or" { "or" }
         "contains" { "contains" }
         "starts" { "starts" }
-        "of" { "of" }
         "intersects" { "intersects" }
         "within" { "within" }
       }

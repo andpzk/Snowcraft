@@ -21,6 +21,20 @@ The most useful primary reference is ScummVM's Director engine:
   Director movies store compiled Lingo bytecode, and readable Lingo requires a
   decompiler such as LingoDec.
 
+ScummVM's `LC::cb_globalpush()` / `LC::cb_globalassign()` read globals by name,
+not by a per-script global-table ordinal. The bytecode operand points into
+`Lnam`, so Snowcraft operands `6` and `11` resolve to `gRDead` and `gGdead`.
+
+ScummVM's `LC::c_of()` also shows that opcode `0x17` consumes a Director chunk
+reference from the stack: `source`, then line/item/word/char start/end fields.
+The exporter now models that stack convention for pseudo-code. This turns the
+projectile setup from opaque expressions into readable chunk access such as:
+
+```text
+word 1 of mn
+word 2 of mn
+```
+
 This Snowcraft build is Director 6.5, so the Director 5+ constant table layout
 applies: 8-byte constant index entries made of `uint32 type` and `uint32 value`.
 
@@ -277,8 +291,8 @@ generates these ignored CSVs:
     raw operands, resolved name/constant when possible.
 - `reverse/lingo-pseudocode.csv`
   - Stack-simulated pseudo-Lingo statements for simple assignments, calls,
-    branches, returns, sprite property access, `point(...)`, `go(...)`, and
-    other common expressions.
+    branches, returns, sprite property access, Director chunk references,
+    `point(...)`, `go(...)`, and other common expressions.
 - `reverse/lingo-basic-blocks.csv`
   - One row per recovered handler basic block, with start/end offsets,
     terminal opcode, state names assigned in the block, and pseudo statements.
@@ -308,6 +322,17 @@ The current control-flow export resolves all branch and jump targets to block
 starts: `320` basic blocks and `451` edges, with no unresolved targets in the
 generated Snowcraft data.
 
+The current constant/global pass resolves every observed `push-constant`,
+`push-global`, and `assign-global` row in Snowcraft. The projectile scripts now
+show their `sb` member-name parsing clearly:
+
+```text
+0318.prepareFrame  if not ((word 1 of mn = "sb")) jump 63
+0318.prepareFrame  set myRange = (integer(word 2 of mn) * 2)
+0341.prepareFrame  if not ((word 1 of local[8] = "sb")) jump 63
+0341.prepareFrame  set myRange = (integer(word 2 of local[8]) * 2)
+```
+
 ## Open Questions
 
 - Decode `Lctx` fully. It likely maps context/script ids to `Lscr` resources and
@@ -319,8 +344,10 @@ generated Snowcraft data.
   - `0x20` appears with sprite `beginSprite`/`prepareFrame` behavior scripts.
   - `0x8000` appears with single `exitFrame` handlers.
   - `0x800` appears on the movie-level script containing `startMovie`.
-- Decode Director entity/property operands for `0x5C/0x5D/0x9C/0x9D` so we can
-  label expressions like `the locH of sprite sp`, `the member of sprite sp`,
-  etc.
-- Use jump targets plus constants to split `0579.prepareFrame` and
-  `0445.prepareFrame` into actor state-machine blocks.
+- Continue refining Director entity/property operands for less common
+  `0x5C/0x5D/0x9C/0x9D` combinations. Common gameplay expressions such as
+  `the locH of sprite sp`, `the memberNum of sprite sp`, `the timer`, and
+  `the number of cast` are already labeled.
+- Build a control-flow-aware AST on top of the recovered basic blocks so
+  `0579.prepareFrame` and `0445.prepareFrame` can become structured source-like
+  state machines instead of block-local pseudo-code.

@@ -35,6 +35,7 @@ cursor((-1))
 go(("Level" && (level + 1)))
 set the loc of sprite sp = (the loc of sprite sp + point((-20), (-10)))
 set the memberNum of sprite sp = the number of cast "G windup"
+set myRange = (integer(word 2 of mn) * 2)
 ```
 
 ## Entity / Property Use
@@ -89,6 +90,9 @@ Sound evidence from `reverse/lingo-call-sites.csv` aligns with that role:
 `0579.prepareFrame` calls `puppetSound("step")`, `puppetSound("hit2")`, and a
 `kids` sound-selection path.
 
+The green death path increments `gGdead`; the level controller compares
+`gGdead` with `gd` before advancing to the next level.
+
 ## Red / Opponent Behavior (`0445`)
 
 `0445` assigns red state members across `beginSprite`, `prepareFrame`,
@@ -105,6 +109,9 @@ Sound evidence from `reverse/lingo-call-sites.csv` aligns with that role:
 This supports the working model that `0445` owns red target interaction:
 hover/pop, click power/throw, hit/daze, and cleanup.
 
+The red death path increments `gRDead`; `0257.exitFrame` checks `gRDead = 3`
+before the `GreenWin` transition.
+
 ## Projectile Scripts (`0318` and `0341`)
 
 Both projectile scripts change visible member state and position with the same
@@ -117,10 +124,12 @@ general pattern:
 
 Both scripts also assign `sprite.loc`, so they are not just collision effects;
 they update projectile position over time. Their `puppetSound` call sites align
-with the state changes: `Whoosh`, `Whoosh Percusive`, `hit1`, and `splat`. The
-visible `splat`/`melt` progression still needs a richer stack/path model because
-some later assignments are dynamic expressions rather than direct
-`cast("<state>").number` writes.
+with the state changes: `Whoosh`, `Whoosh Percusive`, `hit1`, and `splat`.
+Projectile range is recovered from the visible member name: `word 1` must be
+`"sb"` and `word 2` becomes `myRange / 2`. The visible `splat`/`melt`
+progression still needs a richer stack/path model because some later
+assignments are dynamic expressions rather than direct `cast("<state>").number`
+writes.
 
 ## Level / Transition Script Evidence
 
