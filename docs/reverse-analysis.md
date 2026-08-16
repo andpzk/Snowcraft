@@ -73,6 +73,7 @@ powershell -ExecutionPolicy Bypass -File tools/export-bitd-previews.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-bitd-transparent-assets.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-asset-catalog.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-score-timeline.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-cast-member-map.ps1
 ```
 
 The generated `reverse/Snowcraft.embedded.dir` file is ignored by git because it
@@ -247,6 +248,8 @@ reverse/score-summary.csv
 reverse/score-labels.csv
 reverse/score-frame-summary.csv
 reverse/score-frame-sprites.csv
+reverse/score-script-details.csv
+reverse/cast-member-map.csv
 ```
 
 Current score summary:
@@ -291,16 +294,68 @@ The score data makes the movie structure clearer:
 - `score-frame-summary.csv` shows frame-level tempo/action/sound channel state.
 - `score-frame-sprites.csv` shows per-frame active sprites with channel,
   cast member id, position, size, ink data, and sprite list id.
+- `score-script-details.csv` joins frame action members to the D6 sprite detail
+  table, exposing the frame script behavior member and initializer index.
+- `cast-member-map.csv` parses `CAS*` as a Director cast slot table and helps
+  distinguish score cast slots from raw resource indexes.
+
+Current frame-script evidence:
+
+```text
+Frame 35   ActionMember 98   BehaviorMember 98   Initializer 7105
+Frame 45   ActionMember 105  BehaviorMember 105  Initializer 0
+Frame 50   ActionMember 95   BehaviorMember 95   Initializer 0   Level 2
+Frame 65   ActionMember 98   BehaviorMember 98   Initializer 7106
+Frame 70   ActionMember 95   BehaviorMember 95   Initializer 0   Level 3
+Frame 85   ActionMember 98   BehaviorMember 98   Initializer 8280
+Frame 90   ActionMember 95   BehaviorMember 95   Initializer 0   Level 4
+Frame 105  ActionMember 98   BehaviorMember 98   Initializer 8290
+Frame 110  ActionMember 95   BehaviorMember 95   Initializer 0   Level 5
+Frame 125  ActionMember 98   BehaviorMember 98   Initializer 8300
+Frame 130  ActionMember 95   BehaviorMember 95   Initializer 0   Level 6
+Frame 161  ActionMember 98   BehaviorMember 98   Initializer 9020
+```
+
+The behavior members above should be treated as Director/Lingo cast-member
+numbers, not raw `CASt` resource indexes. Several numeric values collide with
+bitmap resource indexes such as `power 0`, so naming them by resource index
+would be misleading.
 
 Important caveat: the score stores Director cast member numbers, while the raw
-resource files are numbered by Director resource index. `score-frame-sprites.csv`
-therefore has two kinds of naming evidence:
+resource files are numbered by Director resource index. The `CAS*` resource is
+a 1-based Director member slot table:
 
-- `CastResolvedBy = cast-member-id` or `resource-index` means the name was joined
-  from current parsed cast metadata.
+```text
+Score cast index N -> CAS*[N - 1] -> resource index
+```
+
+This direct mapping is useful but not complete: many score-used member slots
+point at non-`CASt` resources such as `Lscr`, `junk`, `snd`, or `STXT`, or at
+missing/empty slots. Therefore `score-frame-sprites.csv` keeps separate kinds
+of naming evidence:
+
+- `CastResolvedBy = cas-slot` means `CAS*` pointed to a named `CASt` resource.
 - `DimensionCandidateNames` is only a size-based hint, useful for investigation
   but not proof. For example, many `36x21` score rows point at `shadow` by size,
   but that is not as strong as a cast-member-id join.
+- `LegacyCastMemberIdHint` and `LegacyResourceIndexHint` are kept only as
+  diagnostic hints; they should not be treated as proof.
+
+Current reliable score sprite joins from `CAS*` are narrow but useful:
+
+```text
+Score cast index 4   -> CASt 358 -> G cock
+Score cast index 18  -> CASt 372 -> G ready
+```
+
+Other important score-used slots currently resolve by dimension hints:
+
+```text
+Score cast index 1   mostly 36x21 -> shadow, but mixed/ambiguous
+Score cast index 24  25x36        -> G ready
+Score cast index 69  600x320      -> ground | snowcraft_256
+Score cast index 71  203x31       -> snowcraft_key
+```
 
 ## Visible Game Data
 
@@ -401,6 +456,27 @@ open
 `reverse/lingo-strings.csv` from `Lnam`, `Lctx`, `Lscr`, and `STXT` resources.
 This is not a bytecode decompiler, but it makes the visible script vocabulary
 repeatable and easier to diff while reconstructing gameplay.
+
+More structured Lingo notes are in `docs/lingo-bytecode-notes.md`. Current
+bytecode-level findings:
+
+```text
+0579  likely green character behavior
+0445  likely red character behavior
+0318  likely green snowball/projectile behavior
+0341  likely red snowball/projectile behavior
+0257  likely level/state data; owns gd and level properties
+0023  movie startup / level flow / ridicule behavior
+```
+
+Some small handlers already disassemble clearly without a full decompiler:
+
+```text
+0023.startMovie  cursor(-1), clearGlobals()
+0573.mouseDown   clearGlobals(), go(1)
+0283.mouseDown   gotoNetPage("mailto:wells@nny.com")
+0146.exitFrame   preLoad(1, 77)
+```
 
 `Lscr` script chunks are still bytecode, but their embedded strings already map
 some gameplay behavior:

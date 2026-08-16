@@ -1,13 +1,15 @@
 param(
   [string]$ScoreResource = "reverse\resources\VWSC\0007_VWSC_rel-1539A_size-141029.bin",
   [string]$LabelsResource = "reverse\resources\VWLB\0514_VWLB_rel-37A88_size-73.bin",
+  [string]$ResourceManifest = "reverse\resources\manifest.csv",
   [string]$CastIndex = "reverse\cast-index.csv",
   [string]$AssetCatalog = "reverse\asset-catalog.csv",
   [string]$SoundCatalog = "reverse\sound-cast-metadata.csv",
   [string]$SummaryOut = "reverse\score-summary.csv",
   [string]$LabelsOut = "reverse\score-labels.csv",
   [string]$FramesOut = "reverse\score-frame-summary.csv",
-  [string]$SpritesOut = "reverse\score-frame-sprites.csv"
+  [string]$SpritesOut = "reverse\score-frame-sprites.csv",
+  [string]$ScriptDetailsOut = "reverse\score-script-details.csv"
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,6 +117,32 @@ function Parse-Labels {
   return $labels
 }
 
+function Get-DetailBounds {
+  param([int]$DetailIndex)
+
+  if ($DetailIndex -lt 0 -or $DetailIndex -ge ([int]$detailCount - 1)) {
+    return $null
+  }
+
+  $start = $frameDataOffset + [int](Read-U32BE -Bytes $bytes -Offset ($indexStart + $DetailIndex * 4))
+  $end = $frameDataOffset + [int](Read-U32BE -Bytes $bytes -Offset ($indexStart + ($DetailIndex + 1) * 4))
+  return [pscustomobject]@{
+    Start = $start
+    End = $end
+    Size = $end - $start
+  }
+}
+
+function Get-HexPreview {
+  param([int]$Start, [int]$Size, [int]$MaxBytes = 24)
+
+  if ($Size -le 0) {
+    return ""
+  }
+  $take = [Math]::Min($Size, $MaxBytes)
+  return ($bytes[$Start..($Start + $take - 1)] | ForEach-Object { "{0:X2}" -f $_ }) -join " "
+}
+
 if (-not (Test-Path -LiteralPath $ScoreResource)) {
   throw "Score resource not found: $ScoreResource. Run tools\export-director-resources.ps1 first."
 }
@@ -142,8 +170,25 @@ $castMemberNames = @{}
 $castMemberClasses = @{}
 $castMemberPreviews = @{}
 $castMemberTransparent = @{}
+$resourceCastNames = @{}
+$resourceCastKinds = @{}
+$resourceCastClasses = @{}
+$resourceCastPreviews = @{}
+$resourceCastTransparent = @{}
 if (Test-Path -LiteralPath $CastIndex) {
   foreach ($cast in @(Import-Csv -LiteralPath $CastIndex)) {
+    Add-Name -Map $resourceCastNames -Index $cast.Index -Name $cast.Name
+    Add-Name -Map $resourceCastKinds -Index $cast.Index -Name $cast.Kind
+    if ($assetClasses.ContainsKey($cast.Index)) {
+      Add-Name -Map $resourceCastClasses -Index $cast.Index -Name $assetClasses[$cast.Index]
+    }
+    if ($assetPreviews.ContainsKey($cast.Index) -and -not $resourceCastPreviews.ContainsKey($cast.Index)) {
+      $resourceCastPreviews[$cast.Index] = $assetPreviews[$cast.Index]
+    }
+    if ($assetTransparent.ContainsKey($cast.Index) -and -not $resourceCastTransparent.ContainsKey($cast.Index)) {
+      $resourceCastTransparent[$cast.Index] = $assetTransparent[$cast.Index]
+    }
+
     if (-not $cast.CastMemberId) {
       continue
     }
@@ -157,6 +202,22 @@ if (Test-Path -LiteralPath $CastIndex) {
     }
     if ($assetTransparent.ContainsKey($cast.Index) -and -not $castMemberTransparent.ContainsKey($cast.CastMemberId)) {
       $castMemberTransparent[$cast.CastMemberId] = $assetTransparent[$cast.Index]
+    }
+  }
+}
+
+$scoreCastToResource = @{}
+if (Test-Path -LiteralPath $ResourceManifest) {
+  $cas = @(Import-Csv -LiteralPath $ResourceManifest | Where-Object { $_.Type -eq "CAS*" } | Select-Object -First 1)
+  if ($cas.Count -gt 0 -and (Test-Path -LiteralPath $cas[0].File)) {
+    $casBytes = [IO.File]::ReadAllBytes($cas[0].File)
+    $entryCount = [Math]::Floor(([int]$cas[0].Size) / 4)
+    for ($zeroSlot = 0; $zeroSlot -lt $entryCount; $zeroSlot++) {
+      $entryOffset = 8 + ($zeroSlot * 4)
+      if ($entryOffset + 4 -gt $casBytes.Length) {
+        break
+      }
+      $scoreCastToResource[[string]($zeroSlot + 1)] = [int](Read-U32BE -Bytes $casBytes -Offset $entryOffset)
     }
   }
 }
@@ -207,6 +268,7 @@ $mainChannel = New-Object byte[] 144
 $spriteChannels = @{}
 $frameRows = [System.Collections.Generic.List[object]]::new()
 $spriteRows = [System.Collections.Generic.List[object]]::new()
+$scriptDetailRows = [System.Collections.Generic.List[object]]::new()
 $position = $firstFramePosition
 $frameNumber = 1
 $maxTouchedChannel = 0
@@ -278,23 +340,22 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
     }
 
     $activeCount++
-    $castName = Get-Name -Map $castMemberNames -Index $castIndex
-    $assetClass = Get-Name -Map $castMemberClasses -Index $castIndex
-    $preview = if ($castMemberPreviews.ContainsKey([string]$castIndex)) { $castMemberPreviews[[string]$castIndex] } else { "" }
-    $transparent = if ($castMemberTransparent.ContainsKey([string]$castIndex)) { $castMemberTransparent[[string]$castIndex] } else { "" }
+    $castResourceIndex = if ($scoreCastToResource.ContainsKey([string]$castIndex)) { $scoreCastToResource[[string]$castIndex] } else { "" }
+    $castName = ""
+    $assetClass = ""
+    $preview = ""
+    $transparent = ""
     $castResolvedBy = ""
-    if ($castName) {
-      $castResolvedBy = "cast-member-id"
-    } else {
-      $castName = Get-Name -Map $assetNames -Index $castIndex
-      $assetClass = Get-Name -Map $assetClasses -Index $castIndex
-      $preview = if ($assetPreviews.ContainsKey([string]$castIndex)) { $assetPreviews[[string]$castIndex] } else { "" }
-      $transparent = if ($assetTransparent.ContainsKey([string]$castIndex)) { $assetTransparent[[string]$castIndex] } else { "" }
-      if ($castName) {
-        $castResolvedBy = "resource-index"
-      }
+    if ($castResourceIndex -ne "" -and $resourceCastNames.ContainsKey([string]$castResourceIndex)) {
+      $castName = Get-Name -Map $resourceCastNames -Index $castResourceIndex
+      $assetClass = Get-Name -Map $resourceCastClasses -Index $castResourceIndex
+      $preview = if ($resourceCastPreviews.ContainsKey([string]$castResourceIndex)) { $resourceCastPreviews[[string]$castResourceIndex] } else { "" }
+      $transparent = if ($resourceCastTransparent.ContainsKey([string]$castResourceIndex)) { $resourceCastTransparent[[string]$castResourceIndex] } else { "" }
+      $castResolvedBy = "cas-slot"
     }
     $dimensionCandidateNames = Get-Name -Map $assetDimensionNames -Index "$($width)x$($height)"
+    $legacyCastMemberIdHint = Get-Name -Map $castMemberNames -Index $castIndex
+    $legacyResourceIndexHint = Get-Name -Map $assetNames -Index $castIndex
 
     $spriteRows.Add([pscustomobject]@{
       Frame = $frameNumber
@@ -302,10 +363,13 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
       Channel = [int]$channel
       ChangedThisFrame = [bool]$changedChannels.ContainsKey($channel)
       CastIndex = $castIndex
+      CastResourceIndex = $castResourceIndex
       CastName = $castName
       CastResolvedBy = $castResolvedBy
       AssetClass = $assetClass
       DimensionCandidateNames = $dimensionCandidateNames
+      LegacyCastMemberIdHint = $legacyCastMemberIdHint
+      LegacyResourceIndexHint = $legacyResourceIndexHint
       SpriteType = [int]$state[0]
       InkData = [int]$state[1]
       Ink = ([int]$state[1] -band 0x3f)
@@ -327,6 +391,57 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
 
   $sound1 = Read-U16BE -Bytes $mainChannel -Offset 98
   $sound2 = Read-U16BE -Bytes $mainChannel -Offset 74
+  $actionMember = Read-U16BE -Bytes $mainChannel -Offset 2
+  $scriptSpriteListIdx = Read-U32BE -Bytes $mainChannel -Offset 4
+  $scriptInfoSize = 0
+  $scriptBehaviorSize = 0
+  $scriptInfoStartFrame = ""
+  $scriptInfoEndFrame = ""
+  $scriptBehaviorCastLib = ""
+  $scriptBehaviorMember = ""
+  $scriptBehaviorInitializerIndex = ""
+  $scriptBehaviorHex = ""
+  $scriptBehaviorNameHint = ""
+
+  if ($scriptSpriteListIdx -gt 0) {
+    $infoBounds = Get-DetailBounds -DetailIndex $scriptSpriteListIdx
+    $behaviorBounds = Get-DetailBounds -DetailIndex ($scriptSpriteListIdx + 1)
+
+    if ($infoBounds) {
+      $scriptInfoSize = $infoBounds.Size
+      if ($scriptInfoSize -ge 8) {
+        $scriptInfoStartFrame = Read-U32BE -Bytes $bytes -Offset $infoBounds.Start
+        $scriptInfoEndFrame = Read-U32BE -Bytes $bytes -Offset ($infoBounds.Start + 4)
+      }
+    }
+    if ($behaviorBounds) {
+      $scriptBehaviorSize = $behaviorBounds.Size
+      $scriptBehaviorHex = Get-HexPreview -Start $behaviorBounds.Start -Size $behaviorBounds.Size
+      if ($scriptBehaviorSize -ge 8) {
+        $scriptBehaviorCastLib = Read-U16BE -Bytes $bytes -Offset $behaviorBounds.Start
+        $scriptBehaviorMember = Read-U16BE -Bytes $bytes -Offset ($behaviorBounds.Start + 2)
+        $scriptBehaviorInitializerIndex = Read-U32BE -Bytes $bytes -Offset ($behaviorBounds.Start + 4)
+        $scriptBehaviorNameHint = Get-Name -Map $assetNames -Index $scriptBehaviorMember
+      }
+    }
+
+    $scriptDetailRows.Add([pscustomobject]@{
+      Frame = $frameNumber
+      Label = $label
+      ActionMember = $actionMember
+      ScriptSpriteListIdx = $scriptSpriteListIdx
+      ScriptInfoSize = $scriptInfoSize
+      ScriptInfoStartFrame = $scriptInfoStartFrame
+      ScriptInfoEndFrame = $scriptInfoEndFrame
+      BehaviorSize = $scriptBehaviorSize
+      BehaviorCastLib = $scriptBehaviorCastLib
+      BehaviorMember = $scriptBehaviorMember
+      BehaviorNameResourceIndexHint = $scriptBehaviorNameHint
+      BehaviorInitializerIndex = $scriptBehaviorInitializerIndex
+      BehaviorHexPreview = $scriptBehaviorHex
+    })
+  }
+
   $frameRows.Add([pscustomobject]@{
     Frame = $frameNumber
     Label = $label
@@ -336,8 +451,12 @@ while (($position -lt $bytes.Length) -and (($position - $firstFramePosition) -lt
     ChangedSpriteChannelCount = $changedChannels.Count
     ActiveSpriteCount = $activeCount
     Tempo = [int]$mainChannel[30]
-    ActionMember = (Read-U16BE -Bytes $mainChannel -Offset 2)
-    ScriptSpriteListIdx = (Read-U32BE -Bytes $mainChannel -Offset 4)
+    ActionMember = $actionMember
+    ScriptSpriteListIdx = $scriptSpriteListIdx
+    ScriptInfoStartFrame = $scriptInfoStartFrame
+    ScriptInfoEndFrame = $scriptInfoEndFrame
+    BehaviorMember = $scriptBehaviorMember
+    BehaviorInitializerIndex = $scriptBehaviorInitializerIndex
     Sound1CastIndex = $sound1
     Sound1Name = (Get-Name -Map $soundNames -Index $sound1)
     Sound2CastIndex = $sound2
@@ -379,8 +498,10 @@ $summary = [pscustomobject]@{
 $summary | Export-Csv -LiteralPath $SummaryOut -NoTypeInformation
 $frameRows | Export-Csv -LiteralPath $FramesOut -NoTypeInformation
 $spriteRows | Export-Csv -LiteralPath $SpritesOut -NoTypeInformation
+$scriptDetailRows | Export-Csv -LiteralPath $ScriptDetailsOut -NoTypeInformation
 
 "Exported score summary: $SummaryOut"
 "Exported score labels: $LabelsOut"
 "Exported frame summary: $FramesOut"
 "Exported frame sprites: $SpritesOut"
+"Exported score script details: $ScriptDetailsOut"

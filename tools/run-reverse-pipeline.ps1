@@ -17,7 +17,8 @@ $steps = @(
   @{ Name = "Export bitmap preview PNGs"; Script = "tools\export-bitd-previews.ps1" },
   @{ Name = "Export transparent sprite PNGs"; Script = "tools\export-bitd-transparent-assets.ps1" },
   @{ Name = "Export asset catalog"; Script = "tools\export-asset-catalog.ps1" },
-  @{ Name = "Export score timeline"; Script = "tools\export-score-timeline.ps1" }
+  @{ Name = "Export score timeline"; Script = "tools\export-score-timeline.ps1" },
+  @{ Name = "Export cast member map"; Script = "tools\export-cast-member-map.ps1" }
 )
 
 foreach ($step in $steps) {
