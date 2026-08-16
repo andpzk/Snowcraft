@@ -478,6 +478,8 @@ reverse/lingo-handlers.csv
 reverse/lingo-constants.csv
 reverse/lingo-disassembly.csv
 reverse/lingo-call-sites.csv
+reverse/lingo-entity-ops.csv
+reverse/lingo-member-assignments.csv
 ```
 
 Current script role findings:
@@ -513,6 +515,13 @@ The nearest resolved pushed constants give useful sound/action evidence:
 0445.mouseEnter    puppetSound("short_chirps")
 0579.prepareFrame  puppetSound("step" | "hit2" | "kids")
 ```
+
+The `lingo-entity-ops.csv` and `lingo-member-assignments.csv` outputs decode
+Director entity/property usage such as `the memberNum of sprite`,
+`the loc of sprite`, `the locH/locV of sprite`, `the timer`, and
+`the number of cast`. Current state-assignment evidence includes `78`
+`sprite.memberNum` writes. The strongest actor-state map is documented in
+`docs/lingo-state-machine-notes.md`.
 
 `Lscr` script chunks are still bytecode, but their embedded strings already map
 some gameplay behavior:

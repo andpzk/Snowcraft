@@ -278,11 +278,20 @@ generates these ignored CSVs:
 - `reverse/lingo-call-sites.csv`
   - One row per local/named call, with nearby pushed constants and the last
     nearby constant. This is especially useful for `puppetSound`.
+- `reverse/lingo-entity-ops.csv`
+  - One row per decoded Director entity/property access, including
+    `sprite.memberNum`, `sprite.loc`, `sprite.locH`, `sprite.locV`, `timer`,
+    and `cast.number`.
+- `reverse/lingo-member-assignments.csv`
+  - Derived rows for common `sprite.memberNum = cast("<state>").number`
+    patterns, useful for actor state-machine reconstruction.
 
 The disassembly does not need AST reconstruction to be valuable. Resolved
 constants, globals, calls, property assignments, jumps, and `the sprite`
 property access should be enough to build a state-machine map for the green and
 red actors.
+
+See `docs/lingo-state-machine-notes.md` for the current derived state map.
 
 ## Open Questions
 

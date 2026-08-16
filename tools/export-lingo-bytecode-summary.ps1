@@ -5,7 +5,9 @@ param(
   [string]$HandlersOut = "reverse\lingo-handlers.csv",
   [string]$ConstantsOut = "reverse\lingo-constants.csv",
   [string]$DisassemblyOut = "reverse\lingo-disassembly.csv",
-  [string]$CallSitesOut = "reverse\lingo-call-sites.csv"
+  [string]$CallSitesOut = "reverse\lingo-call-sites.csv",
+  [string]$EntityOpsOut = "reverse\lingo-entity-ops.csv",
+  [string]$MemberAssignmentsOut = "reverse\lingo-member-assignments.csv"
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,18 +128,39 @@ function Get-ConstantByTableOffset {
   return $null
 }
 
+function New-Entity {
+  param(
+    [int]$Bank,
+    [int]$FirstArg,
+    [string]$Entity,
+    [string]$Field,
+    [bool]$Writable,
+    [string]$ArgType
+  )
+
+  return [pscustomobject]@{
+    Bank = $Bank
+    FirstArg = $FirstArg
+    Key = "{0}:{1}" -f $Bank,$FirstArg
+    Entity = $Entity
+    Field = $Field
+    Writable = $Writable
+    ArgType = $ArgType
+  }
+}
+
 $opNames = @{
   0x01 = "return"
   0x02 = "return-value"
   0x03 = "push-zero"
-  0x04 = "add"
-  0x05 = "subtract"
-  0x06 = "multiply"
+  0x04 = "multiply"
+  0x05 = "add"
+  0x06 = "subtract"
   0x07 = "divide"
   0x08 = "mod"
   0x09 = "inverse"
-  0x0A = "join-string"
-  0x0B = "join-pad-string"
+  0x0A = "ampersand"
+  0x0B = "concat"
   0x0C = "less-than"
   0x0D = "less-than-equal"
   0x0E = "not-equal"
@@ -147,10 +170,22 @@ $opNames = @{
   0x12 = "and"
   0x13 = "or"
   0x14 = "not"
+  0x15 = "contains"
+  0x16 = "starts"
+  0x17 = "of"
+  0x18 = "hilite"
+  0x19 = "intersects"
+  0x1A = "within"
+  0x1B = "field"
+  0x1C = "tell"
+  0x1D = "tell-done"
+  0x1E = "list"
+  0x1F = "property-list"
   0x41 = "push-int8"
   0x42 = "push-arg-count-call"
   0x43 = "push-arg-count-call-return"
   0x44 = "push-constant"
+  0x45 = "push-name"
   0x49 = "push-global"
   0x4A = "push-the-property"
   0x4B = "push-argument-property"
@@ -164,12 +199,26 @@ $opNames = @{
   0x55 = "jump-if-zero"
   0x56 = "call-local-handler"
   0x57 = "call-named"
+  0x58 = "call-object"
+  0x59 = "v4-assign"
+  0x5A = "v4-assign2"
+  0x5B = "delete"
   0x5C = "push-entity-property"
   0x5D = "assign-entity-property"
+  0x5F = "push-the-property2"
+  0x60 = "assign-the-property2"
+  0x61 = "push-object-field"
+  0x62 = "assign-object-field"
+  0x63 = "tell-call"
+  0x64 = "stack-peek"
+  0x65 = "stack-drop"
+  0x66 = "push-entity-name-property"
+  0x67 = "object-call-d5"
   0x81 = "push-int16"
   0x82 = "push-arg-count-call16"
   0x83 = "push-arg-count-call-return16"
   0x84 = "push-constant16"
+  0x85 = "push-name16"
   0x89 = "push-global16"
   0x8A = "push-the-property16"
   0x8B = "push-argument-property16"
@@ -183,12 +232,98 @@ $opNames = @{
   0x95 = "jump-if-zero16"
   0x96 = "call-local-handler16"
   0x97 = "call-named16"
+  0x98 = "call-object16"
+  0x99 = "v4-assign16"
+  0x9A = "v4-assign2-16"
   0x9C = "push-entity-property16"
   0x9D = "assign-entity-property16"
+  0x9F = "push-the-property2-16"
+  0xA0 = "assign-the-property2-16"
+  0xA1 = "push-object-field16"
+  0xA2 = "assign-object-field16"
+  0xA3 = "tell-call16"
+  0xA4 = "stack-peek16"
+  0xA5 = "stack-drop16"
+  0xA6 = "push-entity-name-property16"
+  0xA7 = "object-call-d5-16"
 }
 
-$operandOps = @(0x41,0x42,0x43,0x44,0x49,0x4A,0x4B,0x4C,0x4F,0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x5C,0x5D)
-$wideOperandOps = @(0x81,0x82,0x83,0x84,0x89,0x8A,0x8B,0x8C,0x8F,0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x9C,0x9D)
+$entityMap = @{}
+$entityRows = @(
+  New-Entity 6 1 "sprite" "type" $true "item-id"
+  New-Entity 6 2 "sprite" "backColor" $true "item-id"
+  New-Entity 6 3 "sprite" "bottom" $true "item-id"
+  New-Entity 6 4 "sprite" "castNum" $true "item-id"
+  New-Entity 6 5 "sprite" "constraint" $true "item-id"
+  New-Entity 6 6 "sprite" "cursor" $true "item-id"
+  New-Entity 6 7 "sprite" "foreColor" $true "item-id"
+  New-Entity 6 8 "sprite" "height" $true "item-id"
+  New-Entity 6 9 "sprite" "immediate" $true "item-id"
+  New-Entity 6 10 "sprite" "ink" $true "item-id"
+  New-Entity 6 11 "sprite" "left" $true "item-id"
+  New-Entity 6 12 "sprite" "lineSize" $true "item-id"
+  New-Entity 6 13 "sprite" "locH" $true "item-id"
+  New-Entity 6 14 "sprite" "locV" $true "item-id"
+  New-Entity 6 15 "sprite" "movieRate" $true "item-id"
+  New-Entity 6 16 "sprite" "movieTime" $true "item-id"
+  New-Entity 6 17 "sprite" "pattern" $true "item-id"
+  New-Entity 6 18 "sprite" "puppet" $true "item-id"
+  New-Entity 6 19 "sprite" "right" $true "item-id"
+  New-Entity 6 20 "sprite" "startTime" $true "item-id"
+  New-Entity 6 21 "sprite" "stopTime" $true "item-id"
+  New-Entity 6 22 "sprite" "stretch" $true "item-id"
+  New-Entity 6 23 "sprite" "top" $true "item-id"
+  New-Entity 6 24 "sprite" "trails" $true "item-id"
+  New-Entity 6 25 "sprite" "visible" $true "item-id"
+  New-Entity 6 26 "sprite" "volume" $true "item-id"
+  New-Entity 6 27 "sprite" "width" $true "item-id"
+  New-Entity 6 28 "sprite" "blend" $true "item-id"
+  New-Entity 6 29 "sprite" "scriptNum" $true "item-id"
+  New-Entity 6 30 "sprite" "moveableSprite" $true "item-id"
+  New-Entity 6 31 "sprite" "editableText" $true "item-id"
+  New-Entity 6 32 "sprite" "scoreColor" $true "item-id"
+  New-Entity 6 33 "sprite" "loc" $true "item-id"
+  New-Entity 6 34 "sprite" "rect" $true "item-id"
+  New-Entity 6 35 "sprite" "memberNum" $true "item-id"
+  New-Entity 6 36 "sprite" "castLibNum" $true "item-id"
+  New-Entity 6 37 "sprite" "member" $true "item-id"
+  New-Entity 6 38 "sprite" "scriptInstanceList" $true "item-id"
+  New-Entity 6 39 "sprite" "currentTime" $true "item-id"
+  New-Entity 6 40 "sprite" "mostRecentCuePoint" $true "item-id"
+  New-Entity 6 41 "sprite" "tweened" $true "item-id"
+  New-Entity 6 42 "sprite" "name" $true "item-id"
+  New-Entity 7 14 "lastClick" "" $true "none"
+  New-Entity 7 15 "lastEvent" "" $true "none"
+  New-Entity 7 17 "lastKey" "" $true "none"
+  New-Entity 7 18 "lastRoll" "" $true "none"
+  New-Entity 7 19 "timeoutLapsed" "" $true "none"
+  New-Entity 7 25 "soundEnabled" "" $true "none"
+  New-Entity 7 26 "soundLevel" "" $true "none"
+  New-Entity 7 31 "timeoutLength" "" $true "none"
+  New-Entity 7 32 "timeoutMouse" "" $true "none"
+  New-Entity 7 33 "timeoutPlay" "" $true "none"
+  New-Entity 7 34 "timer" "" $true "none"
+  New-Entity 9 1 "cast" "name" $true "item-id"
+  New-Entity 9 2 "cast" "text" $true "item-id"
+  New-Entity 9 3 "cast" "textStyle" $true "item-id"
+  New-Entity 9 4 "cast" "textFont" $true "item-id"
+  New-Entity 9 5 "cast" "textHeight" $true "item-id"
+  New-Entity 9 6 "cast" "textAlign" $true "item-id"
+  New-Entity 9 7 "cast" "textSize" $true "item-id"
+  New-Entity 9 8 "cast" "picture" $true "item-id"
+  New-Entity 9 9 "cast" "hilite" $true "item-id"
+  New-Entity 9 10 "cast" "number" $true "item-id"
+  New-Entity 9 11 "cast" "size" $true "item-id"
+  New-Entity 9 17 "cast" "foreColor" $true "item-id"
+  New-Entity 9 18 "cast" "backColor" $true "item-id"
+  New-Entity 9 19 "cast" "type" $true "item-id"
+)
+foreach ($entity in $entityRows) {
+  $entityMap[$entity.Key] = $entity
+}
+
+$operandOps = @(0x41,0x42,0x43,0x44,0x45,0x49,0x4A,0x4B,0x4C,0x4F,0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0x5B,0x5C,0x5D,0x5F,0x60,0x61,0x62,0x63,0x64,0x65,0x66,0x67)
+$wideOperandOps = @(0x81,0x82,0x83,0x84,0x85,0x89,0x8A,0x8B,0x8C,0x8F,0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9C,0x9D,0x9F,0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7)
 
 function Export-DisassemblyRows {
   param(
@@ -241,6 +376,10 @@ function Export-DisassemblyRows {
           if ($constant) {
             $resolved = "$($constant.DecodedType):$($constant.DecodedValue)"
           }
+          break
+        }
+        { $_ -in @(0x45, 0x85, 0x4A, 0x8A, 0x50, 0x90, 0x5F, 0x9F, 0x60, 0xA0, 0x61, 0xA1, 0x62, 0xA2, 0x63, 0xA3, 0x66, 0xA6, 0x67, 0xA7) } {
+          $resolved = Get-Name -Names $Names -Index ([int]$operand)
           break
         }
         { $_ -in @(0x49, 0x89, 0x4F, 0x8F) } {
@@ -465,8 +604,130 @@ $handlerRows | Export-Csv -LiteralPath $HandlersOut -NoTypeInformation
 $constantRows | Export-Csv -LiteralPath $ConstantsOut -NoTypeInformation
 $disassemblyRows | Export-Csv -LiteralPath $DisassemblyOut -NoTypeInformation
 
-$callRows = [System.Collections.Generic.List[object]]::new()
+$entityOpRows = [System.Collections.Generic.List[object]]::new()
 $disassemblyArray = @($disassemblyRows)
+for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
+  $row = $disassemblyArray[$i]
+  if ($row.Mnemonic -notin @("push-entity-property", "assign-entity-property", "push-entity-property16", "assign-entity-property16")) {
+    continue
+  }
+
+  $propertySource = ""
+  $propertyId = ""
+  for ($j = $i - 1; $j -ge [Math]::Max(0, $i - 6); $j--) {
+    $candidate = $disassemblyArray[$j]
+    if ($candidate.ScriptResourceIndex -ne $row.ScriptResourceIndex -or $candidate.Handler -ne $row.Handler) {
+      continue
+    }
+    if ($candidate.Mnemonic -in @("push-int8", "push-int16")) {
+      $propertyId = [int]$candidate.Operand
+      $propertySource = if ($j -eq ($i - 1)) { "previous-push-int" } else { "nearby-push-int" }
+      break
+    }
+  }
+
+  $bank = [int]$row.Operand
+  $entity = $null
+  if ($propertyId -ne "") {
+    $entityKey = "{0}:{1}" -f $bank,$propertyId
+    if ($entityMap.ContainsKey($entityKey)) {
+      $entity = $entityMap[$entityKey]
+    }
+  }
+
+  $context = [System.Collections.Generic.List[object]]::new()
+  for ($j = [Math]::Max(0, $i - 8); $j -le [Math]::Min($disassemblyArray.Count - 1, $i + 4); $j++) {
+    $candidate = $disassemblyArray[$j]
+    if ($candidate.ScriptResourceIndex -eq $row.ScriptResourceIndex -and $candidate.Handler -eq $row.Handler) {
+      $context.Add($candidate)
+    }
+  }
+
+  $entityOpRows.Add([pscustomobject]@{
+    ScriptResourceIndex = $row.ScriptResourceIndex
+    ScriptOrdinal = $row.ScriptOrdinal
+    LctxId = $row.LctxId
+    AssemblyId = $row.AssemblyId
+    Handler = $row.Handler
+    HandlerOrdinal = $row.HandlerOrdinal
+    BodyOffset = $row.BodyOffset
+    Operation = if ($row.Mnemonic -like "assign-*") { "assign" } else { "push" }
+    Opcode = $row.Opcode
+    EntityBank = $bank
+    EntityPropertyId = $propertyId
+    EntityPropertySource = $propertySource
+    Entity = if ($entity) { $entity.Entity } else { "" }
+    Field = if ($entity) { $entity.Field } else { "" }
+    Writable = if ($entity) { $entity.Writable } else { "" }
+    ArgType = if ($entity) { $entity.ArgType } else { "" }
+    ResolvedExpression = if ($entity) {
+      if ($entity.Field) { "the $($entity.Field) of $($entity.Entity)" } else { "the $($entity.Entity)" }
+    } else {
+      ""
+    }
+    Context = (($context | ForEach-Object { "$($_.BodyOffset):$($_.Mnemonic):$($_.Operand):$($_.Resolved)" }) -join " | ")
+    File = $row.File
+  })
+}
+$entityOpRows | Export-Csv -LiteralPath $EntityOpsOut -NoTypeInformation
+
+$memberAssignmentRows = [System.Collections.Generic.List[object]]::new()
+$entityOpArray = @($entityOpRows)
+foreach ($entityOp in $entityOpArray) {
+  if ($entityOp.Operation -ne "assign" -or $entityOp.Entity -ne "sprite" -or $entityOp.Field -ne "memberNum") {
+    continue
+  }
+
+  $rowIndex = -1
+  for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
+    if ($disassemblyArray[$i].ScriptResourceIndex -eq $entityOp.ScriptResourceIndex -and
+        $disassemblyArray[$i].Handler -eq $entityOp.Handler -and
+        $disassemblyArray[$i].BodyOffset -eq $entityOp.BodyOffset) {
+      $rowIndex = $i
+      break
+    }
+  }
+  if ($rowIndex -lt 0) {
+    continue
+  }
+
+  $context = [System.Collections.Generic.List[object]]::new()
+  for ($j = [Math]::Max(0, $rowIndex - 12); $j -le [Math]::Min($disassemblyArray.Count - 1, $rowIndex + 3); $j++) {
+    $candidate = $disassemblyArray[$j]
+    if ($candidate.ScriptResourceIndex -eq $entityOp.ScriptResourceIndex -and $candidate.Handler -eq $entityOp.Handler) {
+      $context.Add($candidate)
+    }
+  }
+
+  $stateConstants = @($context | Where-Object { $_.Resolved -like "string:*" } | Select-Object -ExpandProperty Resolved)
+  $targetHints = @($context | Where-Object {
+      $_.Mnemonic -in @("push-the-property", "push-the-property16", "push-argument-property", "push-argument-property16", "push-local", "push-local16")
+    } | ForEach-Object {
+      if ($_.Resolved) { "$($_.Mnemonic):$($_.Resolved)" } else { "$($_.Mnemonic):$($_.Operand)" }
+    })
+
+  $memberAssignmentRows.Add([pscustomobject]@{
+    ScriptResourceIndex = $entityOp.ScriptResourceIndex
+    ScriptOrdinal = $entityOp.ScriptOrdinal
+    LctxId = $entityOp.LctxId
+    AssemblyId = $entityOp.AssemblyId
+    Handler = $entityOp.Handler
+    BodyOffset = $entityOp.BodyOffset
+    StateName = if ($stateConstants.Count -gt 0) { ($stateConstants[-1] -replace "^string:", "") } else { "" }
+    StateConstants = Join-Unique $stateConstants
+    TargetHints = Join-Unique $targetHints
+    Assignment = if ($stateConstants.Count -gt 0) {
+      "sprite.memberNum = cast(`"$($stateConstants[-1] -replace '^string:', '')`").number"
+    } else {
+      "sprite.memberNum = <unresolved>"
+    }
+    Context = (($context | ForEach-Object { "$($_.BodyOffset):$($_.Mnemonic):$($_.Operand):$($_.Resolved)" }) -join " | ")
+    File = $entityOp.File
+  })
+}
+$memberAssignmentRows | Export-Csv -LiteralPath $MemberAssignmentsOut -NoTypeInformation
+
+$callRows = [System.Collections.Generic.List[object]]::new()
 for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
   $row = $disassemblyArray[$i]
   if ($row.Mnemonic -notin @("call-named", "call-named16", "call-local-handler", "call-local-handler16")) {
@@ -509,6 +770,25 @@ $callRows | Export-Csv -LiteralPath $CallSitesOut -NoTypeInformation
 "Lingo constants: $($constantRows.Count) -> $ConstantsOut"
 "Lingo disassembly rows: $($disassemblyRows.Count) -> $DisassemblyOut"
 "Lingo call-site rows: $($callRows.Count) -> $CallSitesOut"
+"Lingo entity/property ops: $($entityOpRows.Count) -> $EntityOpsOut"
+"Lingo member assignments: $($memberAssignmentRows.Count) -> $MemberAssignmentsOut"
+""
+"Entity/property usage"
+$entityOpRows |
+  Group-Object Entity,Field,Operation |
+  Sort-Object Count -Descending |
+  Select-Object Count,Name |
+  Format-Table -AutoSize
+
+""
+"Member assignment states"
+$memberAssignmentRows |
+  Where-Object { $_.StateName } |
+  Group-Object ScriptResourceIndex,Handler,StateName |
+  Sort-Object Count -Descending |
+  Select-Object Count,Name |
+  Format-Table -AutoSize
+
 ""
 "Likely gameplay scripts"
 $scriptRows |
