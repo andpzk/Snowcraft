@@ -477,6 +477,7 @@ reverse/lingo-scripts.csv
 reverse/lingo-handlers.csv
 reverse/lingo-constants.csv
 reverse/lingo-disassembly.csv
+reverse/lingo-pseudocode.csv
 reverse/lingo-call-sites.csv
 reverse/lingo-entity-ops.csv
 reverse/lingo-member-assignments.csv
@@ -519,9 +520,20 @@ The nearest resolved pushed constants give useful sound/action evidence:
 The `lingo-entity-ops.csv` and `lingo-member-assignments.csv` outputs decode
 Director entity/property usage such as `the memberNum of sprite`,
 `the loc of sprite`, `the locH/locV of sprite`, `the timer`, and
-`the number of cast`. Current state-assignment evidence includes `78`
-`sprite.memberNum` writes. The strongest actor-state map is documented in
+`the number of cast`. `lingo-pseudocode.csv` adds a conservative stack-simulated
+pseudo-Lingo layer over simple assignments, calls, branches, and returns.
+Current state-assignment evidence includes `78` `sprite.memberNum` writes and
+`558` pseudo-code rows. The strongest actor-state map is documented in
 `docs/lingo-state-machine-notes.md`.
+
+Useful pseudo-code examples now include:
+
+```text
+0023.startMovie       cursor((-1)); clearGlobals()
+0257.exitFrame        go(("Level" && (level + 1)))
+0318.prepareFrame     set the loc of sprite sp = the loc of sprite sp + point((-20), (-10))
+0579.prepareFrame     set the memberNum of sprite sp = the number of cast "G windup"
+```
 
 `Lscr` script chunks are still bytecode, but their embedded strings already map
 some gameplay behavior:

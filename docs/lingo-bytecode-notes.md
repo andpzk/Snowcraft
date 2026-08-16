@@ -275,6 +275,10 @@ generates these ignored CSVs:
 - `reverse/lingo-disassembly.csv`
   - One row per opcode: script, handler, byte offset, opcode, mnemonic,
     raw operands, resolved name/constant when possible.
+- `reverse/lingo-pseudocode.csv`
+  - Stack-simulated pseudo-Lingo statements for simple assignments, calls,
+    branches, returns, sprite property access, `point(...)`, `go(...)`, and
+    other common expressions.
 - `reverse/lingo-call-sites.csv`
   - One row per local/named call, with nearby pushed constants and the last
     nearby constant. This is especially useful for `puppetSound`.
@@ -283,7 +287,8 @@ generates these ignored CSVs:
     `sprite.memberNum`, `sprite.loc`, `sprite.locH`, `sprite.locV`, `timer`,
     and `cast.number`.
 - `reverse/lingo-member-assignments.csv`
-  - Derived rows for common `sprite.memberNum = cast("<state>").number`
+  - Derived rows from stack-simulated pseudo-Lingo for common
+    `set the memberNum of sprite <target> = the number of cast "<state>"`
     patterns, useful for actor state-machine reconstruction.
 
 The disassembly does not need AST reconstruction to be valuable. Resolved

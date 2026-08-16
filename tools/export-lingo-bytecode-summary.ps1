@@ -7,7 +7,8 @@ param(
   [string]$DisassemblyOut = "reverse\lingo-disassembly.csv",
   [string]$CallSitesOut = "reverse\lingo-call-sites.csv",
   [string]$EntityOpsOut = "reverse\lingo-entity-ops.csv",
-  [string]$MemberAssignmentsOut = "reverse\lingo-member-assignments.csv"
+  [string]$MemberAssignmentsOut = "reverse\lingo-member-assignments.csv",
+  [string]$PseudoOut = "reverse\lingo-pseudocode.csv"
 )
 
 $ErrorActionPreference = "Stop"
@@ -322,6 +323,130 @@ foreach ($entity in $entityRows) {
   $entityMap[$entity.Key] = $entity
 }
 
+function New-Expr {
+  param(
+    [string]$Expr,
+    [string]$Kind = "expr"
+  )
+
+  return [pscustomobject]@{
+    Expr = $Expr
+    Kind = $Kind
+  }
+}
+
+function Pop-Expr {
+  param([System.Collections.Generic.List[object]]$Stack)
+
+  if ($Stack.Count -eq 0) {
+    return New-Expr "<stack-empty>" "unknown"
+  }
+
+  $index = $Stack.Count - 1
+  $value = $Stack[$index]
+  $Stack.RemoveAt($index)
+  return $value
+}
+
+function Push-Expr {
+  param(
+    [System.Collections.Generic.List[object]]$Stack,
+    [string]$Expr,
+    [string]$Kind = "expr"
+  )
+
+  $Stack.Add((New-Expr $Expr $Kind))
+}
+
+function Format-ConstantExpr {
+  param([string]$Resolved)
+
+  if ($Resolved -like "string:*") {
+    $value = $Resolved.Substring(7).Replace('"', '\"')
+    return '"' + $value + '"'
+  }
+  if ($Resolved -like "integer:*") {
+    return $Resolved.Substring(8)
+  }
+  if ($Resolved) {
+    return $Resolved
+  }
+  return "<constant>"
+}
+
+function Get-EntityStackInfo {
+  param(
+    [int]$Bank,
+    [object]$FirstArg,
+    [System.Collections.Generic.List[object]]$Stack
+  )
+
+  $entity = $null
+  $key = "{0}:{1}" -f $Bank,[int]$FirstArg.Expr
+  if ($entityMap.ContainsKey($key)) {
+    $entity = $entityMap[$key]
+  }
+
+  $target = ""
+  if ($entity) {
+    if ($entity.ArgType -eq "item-id") {
+      $id = Pop-Expr $Stack
+      if ($entity.Entity -eq "cast") {
+        $member = Pop-Expr $Stack
+        if ($entity.Field) {
+          $target = "the $($entity.Field) of cast $($member.Expr)"
+        } else {
+          $target = "the cast $($member.Expr)"
+        }
+        if ($id.Expr -ne "0") {
+          $target += " of castLib $($id.Expr)"
+        }
+      } else {
+        if ($entity.Field) {
+          $target = "the $($entity.Field) of $($entity.Entity) $($id.Expr)"
+        } else {
+          $target = "the $($entity.Entity) $($id.Expr)"
+        }
+      }
+    } else {
+      $target = if ($entity.Field) { "the $($entity.Field) of $($entity.Entity)" } else { "the $($entity.Entity)" }
+    }
+  } else {
+    $target = "the entity[$Bank,$($FirstArg.Expr)]"
+  }
+
+  return [pscustomobject]@{
+    Entity = $entity
+    Target = $target
+  }
+}
+
+function Add-PseudoRow {
+  param(
+    [System.Collections.Generic.List[object]]$Rows,
+    [object]$SourceRow,
+    [string]$Kind,
+    [string]$Statement,
+    [int]$StackDepth,
+    [string]$Confidence = "stack-simulated"
+  )
+
+  $Rows.Add([pscustomobject]@{
+    ScriptResourceIndex = $SourceRow.ScriptResourceIndex
+    ScriptOrdinal = $SourceRow.ScriptOrdinal
+    LctxId = $SourceRow.LctxId
+    AssemblyId = $SourceRow.AssemblyId
+    Handler = $SourceRow.Handler
+    HandlerOrdinal = $SourceRow.HandlerOrdinal
+    BodyOffset = $SourceRow.BodyOffset
+    Kind = $Kind
+    Statement = $Statement
+    StackDepth = $StackDepth
+    Confidence = $Confidence
+    File = $SourceRow.File
+  })
+}
+
 $operandOps = @(0x41,0x42,0x43,0x44,0x45,0x49,0x4A,0x4B,0x4C,0x4F,0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0x5B,0x5C,0x5D,0x5F,0x60,0x61,0x62,0x63,0x64,0x65,0x66,0x67)
 $wideOperandOps = @(0x81,0x82,0x83,0x84,0x85,0x89,0x8A,0x8B,0x8C,0x8F,0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9C,0x9D,0x9F,0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7)
 
@@ -604,8 +729,203 @@ $handlerRows | Export-Csv -LiteralPath $HandlersOut -NoTypeInformation
 $constantRows | Export-Csv -LiteralPath $ConstantsOut -NoTypeInformation
 $disassemblyRows | Export-Csv -LiteralPath $DisassemblyOut -NoTypeInformation
 
-$entityOpRows = [System.Collections.Generic.List[object]]::new()
 $disassemblyArray = @($disassemblyRows)
+$pseudoRows = [System.Collections.Generic.List[object]]::new()
+$stack = [System.Collections.Generic.List[object]]::new()
+$currentHandlerKey = ""
+foreach ($row in $disassemblyArray) {
+  $handlerKey = "$($row.ScriptResourceIndex):$($row.HandlerOrdinal)"
+  if ($handlerKey -ne $currentHandlerKey) {
+    $stack = [System.Collections.Generic.List[object]]::new()
+    $currentHandlerKey = $handlerKey
+  }
+
+  switch ($row.Mnemonic) {
+    "push-zero" {
+      Push-Expr $stack "0" "literal"
+      continue
+    }
+    { $_ -in @("push-int8", "push-int16") } {
+      Push-Expr $stack ([string]$row.Operand) "literal"
+      continue
+    }
+    { $_ -in @("push-constant", "push-constant16") } {
+      Push-Expr $stack (Format-ConstantExpr $row.Resolved) "constant"
+      continue
+    }
+    { $_ -in @("push-name", "push-name16") } {
+      Push-Expr $stack $(if ($row.Resolved) { "#$($row.Resolved)" } else { "#$($row.Operand)" }) "name"
+      continue
+    }
+    { $_ -in @("push-global", "push-global16") } {
+      Push-Expr $stack $(if ($row.Resolved) { $row.Resolved } else { "global[$($row.Operand)]" }) "global"
+      continue
+    }
+    { $_ -in @("assign-global", "assign-global16") } {
+      $value = Pop-Expr $stack
+      $target = if ($row.Resolved) { $row.Resolved } else { "global[$($row.Operand)]" }
+      Add-PseudoRow $pseudoRows $row "assign" "set $target = $($value.Expr)" $stack.Count
+      continue
+    }
+    { $_ -in @("push-the-property", "push-the-property16") } {
+      Push-Expr $stack $(if ($row.Resolved) { $row.Resolved } else { "property[$($row.Operand)]" }) "property"
+      continue
+    }
+    { $_ -in @("assign-the-property", "assign-the-property16") } {
+      $value = Pop-Expr $stack
+      $target = if ($row.Resolved) { $row.Resolved } else { "property[$($row.Operand)]" }
+      Add-PseudoRow $pseudoRows $row "assign" "set $target = $($value.Expr)" $stack.Count
+      continue
+    }
+    { $_ -in @("push-the-property2", "push-the-property2-16") } {
+      Push-Expr $stack $(if ($row.Resolved) { "the $($row.Resolved)" } else { "movieProperty[$($row.Operand)]" }) "property"
+      continue
+    }
+    { $_ -in @("assign-the-property2", "assign-the-property2-16") } {
+      $value = Pop-Expr $stack
+      $target = if ($row.Resolved) { "the $($row.Resolved)" } else { "movieProperty[$($row.Operand)]" }
+      Add-PseudoRow $pseudoRows $row "assign" "set $target = $($value.Expr)" $stack.Count
+      continue
+    }
+    { $_ -in @("push-argument-property", "push-argument-property16") } {
+      Push-Expr $stack $(if ($row.Resolved) { $row.Resolved } else { "argOrProp[$($row.Operand)]" }) "variable"
+      continue
+    }
+    { $_ -in @("assign-argument-property", "assign-argument-property16") } {
+      $value = Pop-Expr $stack
+      $target = if ($row.Resolved) { $row.Resolved } else { "argOrProp[$($row.Operand)]" }
+      Add-PseudoRow $pseudoRows $row "assign" "set $target = $($value.Expr)" $stack.Count
+      continue
+    }
+    { $_ -in @("push-local", "push-local16") } {
+      Push-Expr $stack $(if ($row.Resolved) { $row.Resolved } else { "local[$($row.Operand)]" }) "local"
+      continue
+    }
+    { $_ -in @("assign-local", "assign-local16") } {
+      $value = Pop-Expr $stack
+      $target = if ($row.Resolved) { $row.Resolved } else { "local[$($row.Operand)]" }
+      Add-PseudoRow $pseudoRows $row "assign" "set $target = $($value.Expr)" $stack.Count
+      continue
+    }
+    { $_ -in @("push-arg-count-call", "push-arg-count-call16", "push-arg-count-call-return", "push-arg-count-call-return16") } {
+      $kind = if ($row.Mnemonic -like "*return*") { "argc-return" } else { "argc-no-return" }
+      Push-Expr $stack ([string]$row.Operand) $kind
+      continue
+    }
+    "inverse" {
+      $value = Pop-Expr $stack
+      Push-Expr $stack "(-$($value.Expr))"
+      continue
+    }
+    { $_ -in @("multiply", "add", "subtract", "divide", "mod", "ampersand", "concat", "less-than", "less-than-equal", "not-equal", "equal", "greater-than", "greater-than-equal", "and", "or", "contains", "starts", "of", "intersects", "within") } {
+      $right = Pop-Expr $stack
+      $left = Pop-Expr $stack
+      $operator = switch ($row.Mnemonic) {
+        "multiply" { "*" }
+        "add" { "+" }
+        "subtract" { "-" }
+        "divide" { "/" }
+        "mod" { "mod" }
+        "ampersand" { "&" }
+        "concat" { "&&" }
+        "less-than" { "<" }
+        "less-than-equal" { "<=" }
+        "not-equal" { "<>" }
+        "equal" { "=" }
+        "greater-than" { ">" }
+        "greater-than-equal" { ">=" }
+        "and" { "and" }
+        "or" { "or" }
+        "contains" { "contains" }
+        "starts" { "starts" }
+        "of" { "of" }
+        "intersects" { "intersects" }
+        "within" { "within" }
+      }
+      Push-Expr $stack "($($left.Expr) $operator $($right.Expr))"
+      continue
+    }
+    "not" {
+      $value = Pop-Expr $stack
+      Push-Expr $stack "(not $($value.Expr))"
+      continue
+    }
+    { $_ -in @("push-entity-property", "push-entity-property16") } {
+      $firstArg = Pop-Expr $stack
+      $info = Get-EntityStackInfo ([int]$row.Operand) $firstArg $stack
+      Push-Expr $stack $info.Target "entity"
+      continue
+    }
+    { $_ -in @("assign-entity-property", "assign-entity-property16") } {
+      $firstArg = Pop-Expr $stack
+      $value = Pop-Expr $stack
+      $info = Get-EntityStackInfo ([int]$row.Operand) $firstArg $stack
+      Add-PseudoRow $pseudoRows $row "assign" "set $($info.Target) = $($value.Expr)" $stack.Count
+      continue
+    }
+    { $_ -in @("call-named", "call-named16", "call-local-handler", "call-local-handler16") } {
+      $argc = Pop-Expr $stack
+      $argCount = 0
+      if ($argc.Kind -like "argc*") {
+        $argCount = [int]$argc.Expr
+      } else {
+        Push-Expr $stack $argc.Expr $argc.Kind
+      }
+      $args = [System.Collections.Generic.List[string]]::new()
+      for ($argIndex = 0; $argIndex -lt $argCount; $argIndex++) {
+        $arg = Pop-Expr $stack
+        $args.Insert(0, $arg.Expr)
+      }
+      $target = if ($row.Resolved) { $row.Resolved } else { "call[$($row.Operand)]" }
+      $expr = "$target($($args -join ', '))"
+      if ($argc.Kind -eq "argc-return") {
+        Push-Expr $stack $expr "call-result"
+        Add-PseudoRow $pseudoRows $row "call-return" $expr $stack.Count
+      } else {
+        Add-PseudoRow $pseudoRows $row "call" $expr $stack.Count
+      }
+      continue
+    }
+    { $_ -in @("jump", "jump16", "jump-back", "jump-back16") } {
+      Add-PseudoRow $pseudoRows $row "jump" "jump $($row.Operand)" $stack.Count
+      continue
+    }
+    { $_ -in @("jump-if-zero", "jump-if-zero16") } {
+      $condition = Pop-Expr $stack
+      Add-PseudoRow $pseudoRows $row "branch" "if not ($($condition.Expr)) jump $($row.Operand)" $stack.Count
+      continue
+    }
+    { $_ -in @("return", "return-value") } {
+      $statement = if ($row.Mnemonic -eq "return-value" -and $stack.Count -gt 0) {
+        $value = Pop-Expr $stack
+        "return $($value.Expr)"
+      } else {
+        "return"
+      }
+      Add-PseudoRow $pseudoRows $row "return" $statement $stack.Count
+      continue
+    }
+    { $_ -in @("stack-drop", "stack-drop16") } {
+      for ($dropIndex = 0; $dropIndex -lt [int]$row.Operand; $dropIndex++) {
+        [void](Pop-Expr $stack)
+      }
+      Add-PseudoRow $pseudoRows $row "stack" "drop $($row.Operand)" $stack.Count "stack-maintenance"
+      continue
+    }
+    { $_ -in @("stack-peek", "stack-peek16") } {
+      if ([int]$row.Operand -lt $stack.Count) {
+        $sourceIndex = $stack.Count - 1 - [int]$row.Operand
+        Push-Expr $stack $stack[$sourceIndex].Expr $stack[$sourceIndex].Kind
+      } else {
+        Push-Expr $stack "<stack-peek:$($row.Operand)>" "unknown"
+      }
+      continue
+    }
+  }
+}
+$pseudoRows | Export-Csv -LiteralPath $PseudoOut -NoTypeInformation
+
+$entityOpRows = [System.Collections.Generic.List[object]]::new()
 for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
   $row = $disassemblyArray[$i]
   if ($row.Mnemonic -notin @("push-entity-property", "assign-entity-property", "push-entity-property16", "assign-entity-property16")) {
@@ -672,57 +992,36 @@ for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
 $entityOpRows | Export-Csv -LiteralPath $EntityOpsOut -NoTypeInformation
 
 $memberAssignmentRows = [System.Collections.Generic.List[object]]::new()
-$entityOpArray = @($entityOpRows)
-foreach ($entityOp in $entityOpArray) {
-  if ($entityOp.Operation -ne "assign" -or $entityOp.Entity -ne "sprite" -or $entityOp.Field -ne "memberNum") {
+foreach ($pseudo in $pseudoRows) {
+  if ($pseudo.Kind -ne "assign" -or $pseudo.Statement -notlike "set the memberNum of sprite *") {
     continue
   }
 
-  $rowIndex = -1
-  for ($i = 0; $i -lt $disassemblyArray.Count; $i++) {
-    if ($disassemblyArray[$i].ScriptResourceIndex -eq $entityOp.ScriptResourceIndex -and
-        $disassemblyArray[$i].Handler -eq $entityOp.Handler -and
-        $disassemblyArray[$i].BodyOffset -eq $entityOp.BodyOffset) {
-      $rowIndex = $i
-      break
-    }
+  $targetExpression = ""
+  $stateExpression = ""
+  $stateName = ""
+  if ($pseudo.Statement -match '^set the memberNum of sprite (.+?) = (.+)$') {
+    $targetExpression = $Matches[1]
+    $stateExpression = $Matches[2]
   }
-  if ($rowIndex -lt 0) {
-    continue
+  if ($stateExpression -match '^the number of cast "([^"]+)"(?: of castLib .+)?$') {
+    $stateName = $Matches[1]
   }
-
-  $context = [System.Collections.Generic.List[object]]::new()
-  for ($j = [Math]::Max(0, $rowIndex - 12); $j -le [Math]::Min($disassemblyArray.Count - 1, $rowIndex + 3); $j++) {
-    $candidate = $disassemblyArray[$j]
-    if ($candidate.ScriptResourceIndex -eq $entityOp.ScriptResourceIndex -and $candidate.Handler -eq $entityOp.Handler) {
-      $context.Add($candidate)
-    }
-  }
-
-  $stateConstants = @($context | Where-Object { $_.Resolved -like "string:*" } | Select-Object -ExpandProperty Resolved)
-  $targetHints = @($context | Where-Object {
-      $_.Mnemonic -in @("push-the-property", "push-the-property16", "push-argument-property", "push-argument-property16", "push-local", "push-local16")
-    } | ForEach-Object {
-      if ($_.Resolved) { "$($_.Mnemonic):$($_.Resolved)" } else { "$($_.Mnemonic):$($_.Operand)" }
-    })
 
   $memberAssignmentRows.Add([pscustomobject]@{
-    ScriptResourceIndex = $entityOp.ScriptResourceIndex
-    ScriptOrdinal = $entityOp.ScriptOrdinal
-    LctxId = $entityOp.LctxId
-    AssemblyId = $entityOp.AssemblyId
-    Handler = $entityOp.Handler
-    BodyOffset = $entityOp.BodyOffset
-    StateName = if ($stateConstants.Count -gt 0) { ($stateConstants[-1] -replace "^string:", "") } else { "" }
-    StateConstants = Join-Unique $stateConstants
-    TargetHints = Join-Unique $targetHints
-    Assignment = if ($stateConstants.Count -gt 0) {
-      "sprite.memberNum = cast(`"$($stateConstants[-1] -replace '^string:', '')`").number"
-    } else {
-      "sprite.memberNum = <unresolved>"
-    }
-    Context = (($context | ForEach-Object { "$($_.BodyOffset):$($_.Mnemonic):$($_.Operand):$($_.Resolved)" }) -join " | ")
-    File = $entityOp.File
+    ScriptResourceIndex = $pseudo.ScriptResourceIndex
+    ScriptOrdinal = $pseudo.ScriptOrdinal
+    LctxId = $pseudo.LctxId
+    AssemblyId = $pseudo.AssemblyId
+    Handler = $pseudo.Handler
+    BodyOffset = $pseudo.BodyOffset
+    TargetExpression = $targetExpression
+    StateExpression = $stateExpression
+    StateName = $stateName
+    Assignment = $pseudo.Statement
+    StackDepth = $pseudo.StackDepth
+    Confidence = $pseudo.Confidence
+    File = $pseudo.File
   })
 }
 $memberAssignmentRows | Export-Csv -LiteralPath $MemberAssignmentsOut -NoTypeInformation
@@ -769,6 +1068,7 @@ $callRows | Export-Csv -LiteralPath $CallSitesOut -NoTypeInformation
 "Lingo handlers: $($handlerRows.Count) -> $HandlersOut"
 "Lingo constants: $($constantRows.Count) -> $ConstantsOut"
 "Lingo disassembly rows: $($disassemblyRows.Count) -> $DisassemblyOut"
+"Lingo pseudocode rows: $($pseudoRows.Count) -> $PseudoOut"
 "Lingo call-site rows: $($callRows.Count) -> $CallSitesOut"
 "Lingo entity/property ops: $($entityOpRows.Count) -> $EntityOpsOut"
 "Lingo member assignments: $($memberAssignmentRows.Count) -> $MemberAssignmentsOut"
