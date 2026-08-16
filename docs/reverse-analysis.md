@@ -72,6 +72,7 @@ powershell -ExecutionPolicy Bypass -File tools/export-sound-cast-metadata.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-bitd-previews.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-bitd-transparent-assets.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-asset-catalog.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-score-timeline.ps1
 ```
 
 The generated `reverse/Snowcraft.embedded.dir` file is ignored by git because it
@@ -233,6 +234,73 @@ frames have multiple distinct candidates.
 
 The generated bitmap CSVs and PNGs are derived from `EXE/Snowcraft.exe` and are
 ignored by git.
+
+## Score Timeline
+
+`tools/export-score-timeline.ps1` parses the Director 6 `VWSC` score resource
+using the same high-level structure as ScummVM's Director engine: a D6 detail
+index followed by frame records, where each frame applies partial channel
+updates. It writes:
+
+```text
+reverse/score-summary.csv
+reverse/score-labels.csv
+reverse/score-frame-summary.csv
+reverse/score-frame-sprites.csv
+```
+
+Current score summary:
+
+```text
+Frames resource size:      141029
+Score version raw:         0xFFFFFFFD
+Detail entries:            9609
+Detail list size:          9610
+Frames stream size:        40782
+Header frame count:        0
+Parsed frame count:        166
+Frames version:            11
+Sprite record size:        24
+Director channels:         126
+Displayed sprite channels: 120
+Max touched sprite channel: 60
+```
+
+Director stores `HeaderFrameCount` as `0` here, so the exporter follows the
+actual frame stream and stops when the frame data ends. This matches ScummVM's
+approach of precomputing the frame count because Director score headers are not
+always reliable.
+
+The `VWLB` label resource resolves to these frame markers:
+
+```text
+Frame 40   GreenWin
+Frame 50   Level 2
+Frame 70   Level 3
+Frame 90   Level 4
+Frame 110  Level 5
+Frame 130  Level 6
+```
+
+The score data makes the movie structure clearer:
+
+- The large `600x320` background is active across the parsed timeline.
+- Early frames build up active sprite channels from a small intro/state setup
+  into groups of green/red character sprites and shadows.
+- Level markers are spaced roughly every 20 frames from `Level 2` onward.
+- `score-frame-summary.csv` shows frame-level tempo/action/sound channel state.
+- `score-frame-sprites.csv` shows per-frame active sprites with channel,
+  cast member id, position, size, ink data, and sprite list id.
+
+Important caveat: the score stores Director cast member numbers, while the raw
+resource files are numbered by Director resource index. `score-frame-sprites.csv`
+therefore has two kinds of naming evidence:
+
+- `CastResolvedBy = cast-member-id` or `resource-index` means the name was joined
+  from current parsed cast metadata.
+- `DimensionCandidateNames` is only a size-based hint, useful for investigation
+  but not proof. For example, many `36x21` score rows point at `shadow` by size,
+  but that is not as strong as a cast-member-id join.
 
 ## Visible Game Data
 
