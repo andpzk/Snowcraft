@@ -11,6 +11,7 @@ Primary generated inputs:
 - `reverse/lingo-basic-blocks.csv`
 - `reverse/lingo-control-flow-edges.csv`
 - `reverse/lingo-member-assignments.csv`
+- `reverse/control-flow-graphs/*.dot`
 
 ## Current Export
 
@@ -99,7 +100,23 @@ future port should recover state machines:
 - use `lingo-pseudocode.csv` for readable movement, sound, timer, and level
   transition statements.
 
-Next useful step: emit per-handler Graphviz/DOT or Mermaid diagrams from the
-block/edge CSVs, starting with `0579.prepareFrame`, `0445.prepareFrame`,
-`445.mouseDown`, `0318.prepareFrame`, `0341.prepareFrame`, and
-`0257.exitFrame`.
+The next useful step is rendering and annotating the largest DOT graphs,
+starting with `0579.prepareFrame`, `0445.prepareFrame`, `0445.mouseDown`,
+`0318.prepareFrame`, `0341.prepareFrame`, and `0257.exitFrame`.
+
+## Graphviz Export
+
+`tools/export-lingo-control-flow-graphs.ps1` converts the block and edge CSVs
+into one Graphviz/DOT graph per Lingo handler. The full reverse pipeline now
+runs it after `tools/export-lingo-bytecode-summary.ps1`.
+
+Generated files are ignored under `reverse/control-flow-graphs/`. The manifest
+lists script id, handler ordinal, handler name, block count, edge count, and dot
+file path:
+
+```text
+reverse/control-flow-graphs/manifest.csv
+```
+
+This makes the high-branching handlers easier to inspect visually without
+checking generated graph files into git.

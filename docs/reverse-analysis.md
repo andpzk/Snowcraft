@@ -68,6 +68,7 @@ powershell -ExecutionPolicy Bypass -File tools/export-bitmap-metadata.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-key-map.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-strings.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-lingo-bytecode-summary.ps1
+powershell -ExecutionPolicy Bypass -File tools/export-lingo-control-flow-graphs.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-director-sounds.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-sound-cast-metadata.ps1
 powershell -ExecutionPolicy Bypass -File tools/export-sound-map.ps1
@@ -480,6 +481,7 @@ reverse/lingo-disassembly.csv
 reverse/lingo-pseudocode.csv
 reverse/lingo-basic-blocks.csv
 reverse/lingo-control-flow-edges.csv
+reverse/control-flow-graphs/manifest.csv
 reverse/lingo-call-sites.csv
 reverse/lingo-entity-ops.csv
 reverse/lingo-member-assignments.csv
@@ -495,6 +497,11 @@ Current script role findings:
 0257  likely level/state data; owns gd and level properties
 0023  movie startup / level flow / ridicule behavior
 ```
+
+The current gameplay state reconstruction is tracked in
+`docs/gameplay-state-map.md`. It summarizes the green actor (`0579`), red actor
+(`0445`), projectile scripts (`0318` and `0341`), level controller (`0257`), and
+movie helper script (`0023`) in terms useful for a future web runtime.
 
 Some small handlers already disassemble clearly without a full decompiler:
 

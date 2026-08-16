@@ -81,6 +81,10 @@ This supports the working model that `0579` is the green/player state machine:
 walk direction, windup/cock/toss, hit/down/recover, and reset to ready all live
 in this one behavior.
 
+The more detailed port-facing reconstruction is in
+`docs/gameplay-state-map.md`, including timer gates, projectile slot ranges,
+hit-count transitions, and level-flow interactions.
+
 Sound evidence from `reverse/lingo-call-sites.csv` aligns with that role:
 `0579.prepareFrame` calls `puppetSound("step")`, `puppetSound("hit2")`, and a
 `kids` sound-selection path.
@@ -137,6 +141,7 @@ effect or taunt/victory animation.
 - `reverse/lingo-member-assignments.csv` now uses stack-simulated statements,
   but only direct `the number of cast "<state>"` writes get a simple
   `StateName`; dynamic cast-number expressions remain in `StateExpression`.
-- The next decompiler step should add basic-block and jump-target recovery so
-  state transitions can be grouped by condition rather than only by bytecode
-  order.
+- Basic-block and jump-target recovery now exists, but there is not yet a
+  control-flow-aware AST. Branch-local expressions are still best read from
+  `reverse/lingo-basic-blocks.csv`, `reverse/lingo-control-flow-edges.csv`, and
+  the generated DOT graphs together.
